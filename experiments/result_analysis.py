@@ -759,150 +759,22 @@ if __name__ == '__main__':
     main_seed = 2021
     env_seed = 0
 
-    tt_results = read_results_from_folder('results/tt/', include_final_states=True)
-    tt_results.extend(read_results_from_folder('results/ttns/', include_final_states=True))
-    tt_results.extend(read_results_from_folder('results/tt_mdpfuzz/', include_final_states=True))
-    use_cases, method_names, colors_dict = color_data(tt_results)
-    print(method_names, use_cases)
 
-    ####################### Analysis computation #######################
+    ####################### Raw data loading #######################
 
-    rq1_data = compute_rq1_results(tt_results)
-    bs_cov, fbs_cov = compute_rq2_bs_results(tt_results)
-    # stores the analysis results
-    folder = 'data'
-    for case in use_cases:
-        sub_folder = f'{folder}/{case}'
-        if not os.path.exists(sub_folder):
-            os.mkdir(sub_folder)
-    dump_results(rq1_data, [f'{folder}/{case}/rq1' for case in use_cases])
-    dump_results(bs_cov, [f'{folder}/{case}/bs_cov' for case in use_cases])
-    dump_results(fbs_cov, [f'{folder}/{case}/fbs_cov' for case in use_cases])
-
-    # knn computation of the final states
-    computation_steps, k = 50, 3
-    use_cases, knn_results, fknn_results, xstarts, colors_dict = compute_mean_knn(tt_results, knn=k, computation_steps=computation_steps)
-    relative_knns = [compute_relative_performance(results_dict) for results_dict in knn_results]
-    relative_fknns = [compute_relative_performance(results_dict) for results_dict in fknn_results]
-    dump_results(knn_results, [f'{folder}/{case}/knn' for case in use_cases])
-    dump_results(fknn_results, [f'{folder}/{case}/fknn' for case in use_cases])
-    dump_results(relative_knns, [f'{folder}/{case}/knn_relative' for case in use_cases])
-    dump_results(relative_fknns, [f'{folder}/{case}/fknn_relative' for case in use_cases])
-
-
-    # RQ3: only BW data with all behavior spaces
-    # rq3_data = compute_rq1_results(bw_results)
-    # rq3_bs_cov, rq3_fbs_cov = compute_rq2_bs_results(bw_results)
-
-    # bw_folder = 'data/rq3'
-    # os.mkdir(bw_folder)
-    # for case in bw_cases:
-    #     os.mkdir(f'{bw_folder}/{case}')
-
-    # dump_results(rq3_data, [f'{bw_folder}/{case}/rq1' for case in bw_cases])
-    # dump_results(rq3_bs_cov, [f'{bw_folder}/{case}/bs_cov' for case in bw_cases])
-    # dump_results(rq3_fbs_cov, [f'{bw_folder}/{case}/fbs_cov' for case in bw_cases])
-
-    # bw_cases, rq3_knn_results, rq3_fknn_results, xstarts, bw_colors_dict = compute_mean_knn(bw_results, knn=k, computation_steps=computation_steps)
-    # rq3_relative_knns = [compute_relative_performance(results_dict) for results_dict in rq3_knn_results]
-    # rq3_relative_fknns = [compute_relative_performance(results_dict) for results_dict in rq3_fknn_results]
-    # dump_results(rq3_knn_results, [f'{bw_folder}/{case}/knn' for case in bw_cases])
-    # dump_results(rq3_fknn_results, [f'{bw_folder}/{case}/fknn' for case in bw_cases])
-    # dump_results(rq3_relative_knns, [f'{bw_folder}/{case}/knn_relative' for case in bw_cases])
-    # dump_results(rq3_relative_fknns, [f'{bw_folder}/{case}/fknn_relative' for case in bw_cases])
-
-    ####################### Plotting #######################
-
-    fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
-    legend = axs1[0].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
-    fig1.savefig('test_rq1.png')
-
-    fig2, axs2 = plot_rq2_bs_results(use_cases, colors_dict, bs_cov, fbs_cov)
-    # axs2[0][-1].legend_ = None
-    # axs2[-1][-1].legend_ = None
-    # legend = axs2[1][-1].legend_
-    for ax in axs2[0].flat:
-        legend = ax.legend_
-        if legend is not None:
-            for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
-    fig2.savefig('test_rq22_bs.png')
-
-    x_index = 19
-    fig3, axs3 = plot_rq2_fs_results(use_cases, colors_dict, relative_knns, relative_fknns, computation_steps, x_index)
-    # for ax in axs3.flat:
-    for ax in axs3[0].flat:
-        legend = ax.legend_
-        if legend is not None:
-            for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
-    # for ax in axs3[0]:
-    #     ax.legend_ = None
-    # for ax in axs3[-1]:
-    #     ax.legend_ = None
-    # axs3[1][-1].legend_ = None
-    fig3.savefig('test_rq22_fs.png')
-
-
-    exit(10)
-
-    fig3, axs3 = plot_rq3_results(
-        [rq3_data, rq3_bs_cov, rq3_fbs_cov, rq3_relative_knns, rq3_relative_fknns],
-        colors_dict,
-        [np.arange(5000), np.arange(5000), np.arange(5000), x, x],
-        ['$Distance$ and $Hull$ $angle$', '$Torque$ and $Jump$', '$Hip$ $angles$', '$Hip$ $speeds$'],
-        ['#Faults', '#Behaviours', '#Faulty Behaviours', 'FS Diversity', 'FFS Diversity']
-    )
-
-    x = np.arange((1 + x_index) * computation_steps - 1, 5000, computation_steps)
-    for dd in relative_knns:
-        for k, v in dd.items():
-            dd[k] = v[x_index:]
-    for dd in relative_fknns:
-        for k, v in dd.items():
-            dd[k] = v[x_index:]
-
-    # fig3, axs3 = plot_rq3_results(
-    #     [rq3_data, rq3_bs_cov, rq3_fbs_cov, relative_knns, relative_fknns],
-    #     colors_dict,
-    #     [np.arange(5000), np.arange(5000), np.arange(5000), x, x],
-    #     ['$Distance$ and $Hull$ $angle$', '$Torque$ and $Jump$', '$Hip$ $angles$', '$Hip$ $speeds$'],
-    #     ['#Faults', '#Behaviours', '#Faulty Behaviours', 'FS Diversity', 'FFS Diversity']
-    # )
-    # fig3.set_figwidth(15)
-    # fig3.set_figheight(15)
-    # fig3.tight_layout()
-    # # removes redundant x labels
-    # for i in [0, 1, 3]:
-    #     for ax in axs3[i]:
-    #         ax.set_xticklabels([])
-    # # removes redundant legends
-    # for i in [0, 2, 3, 4]:
-    #     axs3[i][-1].legend_ = None
-    fig3.savefig('test_rq3.png')
-
-
-
-###################################################################################################################
 
     # LL
-    ll_results = read_results_from_folder('results/new_ll_results/ll/', include_final_states=True)
-    ll_results.extend(read_results_from_folder('results/mdpfuzz_new_ll/', include_final_states=True))
-    ll_results.extend(read_results_from_folder('results/llns_server/', include_final_states=True))
+    ll_results = read_results_from_folder('results/ll/', include_final_states=True)
+    ll_results.extend(read_results_from_folder('results/ll_mdpfuzz/', include_final_states=True))
 
-    # TT (RT, ME, NS, MDPFuzz)
+    # TT
     ll_results.extend(read_results_from_folder('results/tt/', include_final_states=True))
-    ll_results.extend(read_results_from_folder('results/tt_me/', include_final_states=True))
     ll_results.extend(read_results_from_folder('results/ttns/', include_final_states=True))
     ll_results.extend(read_results_from_folder('results/tt_mdpfuzz/', include_final_states=True))
 
     BW_DEFAULT_USE_CASE = 'Bipedal Walker 0'
-    bw_results = read_results_from_folder('results/bw_me_server/', include_final_states=True)
-    bw_results.extend(read_results_from_folder('results/mdpfuzz_new_bw/', include_final_states=True))
-    bw_results.extend([d for d in read_results_from_folder('results/new_bw_results/bw/', include_final_states=True) if d['config']['name'] == 'Random Testing'])
-    bw_results.extend(read_results_from_folder('results/bwns/', include_final_states=True))
+    bw_results = read_results_from_folder('results/bw/', include_final_states=True)
+    bw_results.extend(read_results_from_folder('results/bw_mdpfuzz/', include_final_states=True))
 
     first_results = ll_results + \
         [d for d in bw_results
@@ -913,23 +785,69 @@ if __name__ == '__main__':
         if d['config']['use_case'] == BW_DEFAULT_USE_CASE:
             d['config']['use_case'] = 'Bipedal Walker'
 
+
     use_cases, method_names, colors_dict = color_data(first_results)
     print(method_names, use_cases)
     bw_cases, bw_names, bw_colors_dict = color_data(bw_results)
     print(bw_names, bw_cases)
 
-    # RQ1
+
+    ####################### Analysis computation #######################
+
+
     rq1_data = compute_rq1_results(first_results)
+    bs_cov, fbs_cov = compute_rq2_bs_results(first_results)
+    # stores the results of the analysis
+    folder = 'data'
     for case in use_cases:
-        os.mkdir(f'data/{case}')
-    dump_results(rq1_data, [f'data/{case}/rq1' for case in use_cases])
+        sub_folder = f'{folder}/{case}'
+        if not os.path.exists(sub_folder):
+            os.mkdir(sub_folder)
+
+    dump_results(rq1_data, [f'{folder}/{case}/rq1' for case in use_cases])
+    dump_results(bs_cov, [f'{folder}/{case}/bs_cov' for case in use_cases])
+    dump_results(fbs_cov, [f'{folder}/{case}/fbs_cov' for case in use_cases])
+
+    # knn computation of the final states
+    computation_steps, k = 50, 3
+    use_cases, knn_results, fknn_results, _xstarts, colors_dict = compute_mean_knn(first_results, knn=k, computation_steps=computation_steps)
+    relative_knns = [compute_relative_performance(results_dict) for results_dict in knn_results]
+    relative_fknns = [compute_relative_performance(results_dict) for results_dict in fknn_results]
+    dump_results(knn_results, [f'{folder}/{case}/knn' for case in use_cases])
+    dump_results(fknn_results, [f'{folder}/{case}/fknn' for case in use_cases])
+    dump_results(relative_knns, [f'{folder}/{case}/knn_relative' for case in use_cases])
+    dump_results(relative_fknns, [f'{folder}/{case}/fknn_relative' for case in use_cases])
+
+    # RQ3: only BW data with all behavior spaces
+    rq3_data = compute_rq1_results(bw_results)
+    rq3_bs_cov, rq3_fbs_cov = compute_rq2_bs_results(bw_results)
+
+    bw_folder = 'data/rq3'
+    os.mkdir(bw_folder)
+    for case in bw_cases:
+        os.mkdir(f'{bw_folder}/{case}')
+
+    dump_results(rq3_data, [f'{bw_folder}/{case}/rq1' for case in bw_cases])
+    dump_results(rq3_bs_cov, [f'{bw_folder}/{case}/bs_cov' for case in bw_cases])
+    dump_results(rq3_fbs_cov, [f'{bw_folder}/{case}/fbs_cov' for case in bw_cases])
+    # knn computation of the final states
+    bw_cases, rq3_knn_results, rq3_fknn_results, _xstarts, bw_colors_dict = compute_mean_knn(bw_results, knn=k, computation_steps=computation_steps)
+    rq3_relative_knns = [compute_relative_performance(results_dict) for results_dict in rq3_knn_results]
+    rq3_relative_fknns = [compute_relative_performance(results_dict) for results_dict in rq3_fknn_results]
+    dump_results(rq3_knn_results, [f'{bw_folder}/{case}/knn' for case in bw_cases])
+    dump_results(rq3_fknn_results, [f'{bw_folder}/{case}/fknn' for case in bw_cases])
+    dump_results(rq3_relative_knns, [f'{bw_folder}/{case}/knn_relative' for case in bw_cases])
+    dump_results(rq3_relative_fknns, [f'{bw_folder}/{case}/fknn_relative' for case in bw_cases])
+
+
+    ####################### Plotting #######################
+
     fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
     legend = axs1[0].legend_
     for line in legend.get_lines():
         plt.setp(line, linewidth=4)
     fig1.savefig('test_rq1.png')
 
-    bs_cov, fbs_cov = compute_rq2_bs_results(first_results)
     fig2, axs2 = plot_rq2_bs_results(use_cases, colors_dict, bs_cov, fbs_cov)
     axs2[0][-1].legend_ = None
     axs2[-1][-1].legend_ = None
@@ -938,112 +856,41 @@ if __name__ == '__main__':
         plt.setp(line, linewidth=4)
     fig2.savefig('test_rq22_bs.png')
 
-    # knn computation of the final states
-    computation_steps, k = 50, 3
-    use_cases, knn_results, fknn_results, xstarts, colors_dict = compute_mean_knn(first_results, knn=k, computation_steps=computation_steps)
-    relative_knns = [compute_relative_performance(results_dict) for results_dict in knn_results]
-    relative_fknns = [compute_relative_performance(results_dict) for results_dict in fknn_results]
-    print('results computed.')
-
-    fig3, axs3 = plot_rq2_fs_results(use_cases, colors_dict, relative_knns, relative_fknns, computation_steps, 19)
-    for ax in axs3.flat:
-        legend = ax.legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
+    # this final state diversity is not shown for the initialization data (i.e., first 1000 iterations) since the values vary a lot.
+    x_index = 19 # it means that the plotting starts at the (1 + 19) * 50 = 1000th iteration
+    fig3, axs3 = plot_rq2_fs_results(use_cases, colors_dict, relative_knns, relative_fknns, computation_steps, x_index)
     for ax in axs3[0]:
         ax.legend_ = None
     for ax in axs3[-1]:
         ax.legend_ = None
     axs3[1][-1].legend_ = None
-    fig3.patch.set_facecolor('white')
     fig3.savefig('test_rq22_fs.png')
 
-    def dump_exp_results(folder: str = 'data'):
-        # saves the results
-        folders = []
-        for case in use_cases:
-            case_folder = f'{folder}/{case}/'
-            if not os.path.exists(case_folder):
-                os.mkdir(case_folder)
-            folders.append(case_folder)
 
-        fps = [f + 'knn' for f in folders]
-        dump_results(knn_results, fps)
-        fps = [f + 'fknn' for f in folders]
-        dump_results(fknn_results, fps)
-        fps = [f + 'knn_relative' for f in folders]
-        dump_results(relative_knns, fps)
-        fps = [f + 'fknn_relative' for f in folders]
-        dump_results(relative_fknns, fps)
-        fps = [f + 'rq1' for f in folders]
-        dump_results(rq1_data, fps)
-        fps = [f + 'bs_cov' for f in folders]
-        dump_results(bs_cov, fps)
-        fps = [f + 'fbs_cov' for f in folders]
-        dump_results(fbs_cov, fps)
-        print('results saved.')
-
-    dump_exp_results()
-
-    # RQ3: only BW data with all behavior spaces
-    # knn computation
-    computation_steps, k = 200, 3
-    use_cases, knn_results, fknn_results, xstarts, colors_dict = compute_mean_knn(bw_results, knn=k, computation_steps=computation_steps)
-    relative_knns = [compute_relative_performance(results_dict) for results_dict in knn_results]
-    relative_fknns = [compute_relative_performance(results_dict) for results_dict in fknn_results]
-    rq3_data = compute_rq1_results(bw_results)
-    rq3_bs_cov, rq3_fbs_cov = compute_rq2_bs_results(bw_results)
-    print('results computed.')
-    # saves the results
-    folders = []
-    for case in use_cases:
-        case_folder = f'data_rq3/{case}/'
-        if not os.path.exists(case_folder):
-            os.mkdir(case_folder)
-        folders.append(case_folder)
-
-    fps = [f + 'knn' for f in folders]
-    dump_results(knn_results, fps)
-    fps = [f + 'fknn' for f in folders]
-    dump_results(fknn_results, fps)
-    fps = [f + 'knn_relative' for f in folders]
-    dump_results(relative_knns, fps)
-    fps = [f + 'fknn_relative' for f in folders]
-    dump_results(relative_fknns, fps)
-
-    fps = [f + 'rq1' for f in folders]
-    dump_results(rq3_data, fps)
-    fps = [f + 'bs_cov' for f in folders]
-    dump_results(rq3_bs_cov, fps)
-    fps = [f + 'fbs_cov' for f in folders]
-    dump_results(rq3_fbs_cov, fps)
-    print('results saved.')
-
-    x_index = 20
+    # the last plotting function does not support such plotting starting index: we thus have to shorten the data before
     x = np.arange((1 + x_index) * computation_steps - 1, 5000, computation_steps)
-    for dd in relative_knns:
+    for dd in rq3_relative_knns:
         for k, v in dd.items():
             dd[k] = v[x_index:]
-    for dd in relative_fknns:
+    for dd in rq3_relative_fknns:
         for k, v in dd.items():
             dd[k] = v[x_index:]
 
-    fig3, axs3 = plot_rq3_results(
-        [rq3_data, rq3_bs_cov, rq3_fbs_cov, relative_knns, relative_fknns],
+    fig4, axs4 = plot_rq3_results(
+        [rq3_data, rq3_bs_cov, rq3_fbs_cov, rq3_relative_knns, rq3_relative_fknns],
         colors_dict,
         [np.arange(5000), np.arange(5000), np.arange(5000), x, x],
         ['$Distance$ and $Hull$ $angle$', '$Torque$ and $Jump$', '$Hip$ $angles$', '$Hip$ $speeds$'],
         ['#Faults', '#Behaviours', '#Faulty Behaviours', 'FS Diversity', 'FFS Diversity']
     )
-    fig3.set_figwidth(15)
-    fig3.set_figheight(15)
-    fig3.tight_layout()
-    fig3
+    fig4.set_figwidth(15)
+    fig4.set_figheight(15)
+    fig4.tight_layout()
     # removes redundant x labels
     for i in [0, 1, 3]:
-        for ax in axs3[i]:
+        for ax in axs4[i]:
             ax.set_xticklabels([])
     # removes redundant legends
     for i in [0, 2, 3, 4]:
-        axs3[i][-1].legend_ = None
-    fig3.savefig('test_rq3.png')
+        axs4[i][-1].legend_ = None
+    fig4.savefig('test_rq3.png')
