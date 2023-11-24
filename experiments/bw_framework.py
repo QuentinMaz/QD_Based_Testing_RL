@@ -525,6 +525,8 @@ if __name__ == '__main__':
     for seed in EXPERIMENT_SEEDS:
         print(f'Seed {seed} starts.')
         for expert_indices in EXPERT_INDICES:
+            f = MAPElitesFramework(seed, cell_granularity, descriptors=expert_indices, name='MAP-Elites')
+            f.test_policy(model, env_seed, test_budget, init_budget, results_fp)
             f = Framework(seed, cell_granularity, descriptors=expert_indices, name=f'Novelty Search')
             f.novelty_search(
                 model, env_seed,
@@ -535,13 +537,3 @@ if __name__ == '__main__':
                 results_fp
             )
         print(f'Experts done.')
-
-    for seed in EXPERIMENT_SEEDS:
-        print(f'Seed {seed} starts.')
-        for expert_indices in EXPERT_INDICES:
-            f = Framework(seed, cell_granularity, descriptors=expert_indices, name='Random Testing')
-            f.random_testing(model, env_seed, test_budget, results_fp)
-            f = MAPElitesFramework(seed, cell_granularity, descriptors=expert_indices, name='MAP-Elites')
-            f.test_policy(model, env_seed, test_budget, init_budget, results_fp)
-        print(f'Experts done.')
-

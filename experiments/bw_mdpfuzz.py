@@ -561,6 +561,64 @@ class fuzzing:
             collection.save_state()
 
 
+    def random_testing(self, model: BaseAlgorithm,
+                    env_seed: int,
+                    test_budget: int,
+                    results_fp: str,
+                    disable_pbar: bool = False):
+        '''Random testing loop baseline.'''
+        self.test_budget = test_budget
+        self.config['test_budget'] = self.test_budget
+        self.config['env_seed'] = env_seed
+
+
+        if os.path.isdir(results_fp):
+            filepath = f'{results_fp}{self.creation_time}' if results_fp.endswith('/') else f'{results_fp}/{self.creation_time}'
+        else:
+            filepath = results_fp
+
+        feature_edges = np.load(f'grid/bw/{env_seed}_{self.sim_steps}_edges.npy')
+        collections: List[GridCollection] = []
+
+        for expert_indices in EXPERT_INDICES:
+            collections.append(GridCollection(f'{filepath}{expert_indices[0]}{expert_indices[1]}', expert_indices, feature_edges, copy.deepcopy(self.config)))
+
+        time_budget = min(12, test_budget) * 3600
+        executions_budget = test_budget if test_budget > 12 else 10000
+        print(f'Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.')
+
+        execution_times = []
+
+        start_time = time.time()
+        current_time = time.time()
+        nb_executions = 0
+        pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
+
+        while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
+            input: np.ndarray = self.rng.integers(low=1, high=4, size=15)
+            episode_reward, oracle, feature, fs, exec_time = execute_policy(input, model, env_seed=env_seed, sim_steps=self.sim_steps)
+            execution_times.append(exec_time)
+
+            for collection in collections:
+                collection.record_init_execution(input, episode_reward, oracle, feature, fs, exec_time)
+
+            current_time = time.time()
+            nb_executions += 1
+            pbar.update(1)
+
+        testing_end_time = time.time()
+        self.config['testing_start_time'] = start_time
+        self.config['testing_end_time'] = testing_end_time
+        self.config['testing_time'] = testing_end_time - start_time
+        self.config['total_execution_time'] = sum(execution_times)
+
+        pbar.close()
+
+        for collection in collections:
+            collection.update_config(self.config)
+            collection.save_state()
+
+
 if __name__ == '__main__':
     torch.set_num_threads(1)
     main_seed = 2021
@@ -570,7 +628,17 @@ if __name__ == '__main__':
     test_budget = 5000
     init_budget = 1000
 
+
+    results_folder = 'results/bwrt/'
+    if not os.path.isdir(results_folder):
+        os.mkdir(results_folder)
+    for seed in EXPERIMENT_SEEDS:
+        fuzzer = fuzzing(seed, 300, name='Random Testing')
+        fuzzer.random_testing(model, env_seed, test_budget, results_folder)
+
     results_folder = 'results/bw_mdpfuzz/'
+    if not os.path.isdir(results_folder):
+        os.mkdir(results_folder)
     for seed in EXPERIMENT_SEEDS:
         fuzzer = fuzzing(seed, 300)
         fuzzer.test_policy(model, env_seed, test_budget, init_budget, results_folder)

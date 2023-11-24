@@ -775,6 +775,7 @@ if __name__ == '__main__':
     BW_DEFAULT_USE_CASE = 'Bipedal Walker 0'
     bw_results = read_results_from_folder('results/bw/', include_final_states=True)
     bw_results.extend(read_results_from_folder('results/bw_mdpfuzz/', include_final_states=True))
+    bw_results.extend(read_results_from_folder('results/bwrt/', include_final_states=True))
 
     first_results = ll_results + \
         [d for d in bw_results
@@ -823,9 +824,12 @@ if __name__ == '__main__':
     rq3_bs_cov, rq3_fbs_cov = compute_rq2_bs_results(bw_results)
 
     bw_folder = 'data/rq3'
-    os.mkdir(bw_folder)
+    if not os.path.exists(bw_folder):
+        os.mkdir(bw_folder)
     for case in bw_cases:
-        os.mkdir(f'{bw_folder}/{case}')
+        sub_folder = f'{bw_folder}/{case}'
+        if not os.path.exists(sub_folder):
+            os.mkdir(sub_folder)
 
     dump_results(rq3_data, [f'{bw_folder}/{case}/rq1' for case in bw_cases])
     dump_results(rq3_bs_cov, [f'{bw_folder}/{case}/bs_cov' for case in bw_cases])
@@ -843,9 +847,11 @@ if __name__ == '__main__':
     ####################### Plotting #######################
 
     fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
-    legend = axs1[0].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
+    for ax in axs1.flat:
+        legend = ax.legend_
+        if legend is not None:
+            for line in legend.get_lines():
+                plt.setp(line, linewidth=4)
     fig1.savefig('test_rq1.png')
 
     fig2, axs2 = plot_rq2_bs_results(use_cases, colors_dict, bs_cov, fbs_cov)
