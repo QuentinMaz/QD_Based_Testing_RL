@@ -1,6 +1,6 @@
 # Testing for Fault Diversity in Reinforcement Learning
 
-This repository contains all the material to replicate the results of the paper.
+This repository contains all the material to replicate the results of **AST 2024** paper: *Testing for Fault Diversity in Reinforcement Learning*.
 The virtual environment comes from the [work of MDPFuzz](https://github.com/Qi-Pang/MDPFuzz).
 Similarly, we use some parts of their implementation to replicate their methodology.
 Experiments were executed on a Linux machine (Ubuntu 22.04.3 LTS) equipped with an AMD Ryzen 9 3950X 16-Core processor and 32GB of RAM.
@@ -56,3 +56,24 @@ The execution results are saved in `results/`.
 After the execution, the computation of the raw data and their presentation (e.g., charts) can be launched with the command `python result_analysis.py`.
 The data of the figures are stored under the folder `data/` (such as the behavior coverage) and the previous command directly outputs the .png files of the figures in the current folder (`experiments/`).
 Thanks for reading and do not hesitate to raise any replication problem to the maintainer of this repository.
+
+## Citation
+
+```
+@inproceedings{10.1145/3644032.3644458,
+author = {Mazouni, Quentin and Spieker, Helge and Gotlieb, Arnaud and Acher, Mathieu},
+title = {Testing for Fault Diversity in Reinforcement Learning},
+year = {2024},
+isbn = {9798400705885},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3644032.3644458},
+doi = {10.1145/3644032.3644458},
+booktitle = {Proceedings of the 5th ACM/IEEE International Conference on Automation of Software Test (AST 2024)},
+pages = {136–146},
+numpages = {11},
+keywords = {software testing, reinforcement learning, quality diversity},
+location = {Lisbon, Portugal},
+series = {AST '24}
+}
+```
