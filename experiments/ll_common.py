@@ -51,7 +51,7 @@ def load_lunar_lander_model():
     return PPO.load('rl-trained-agents/ppo/LunarLander-v2_1/LunarLander-v2.zip', custom_objects=custom_objects)
 
 
-def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
+def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000, deterministic: bool = True) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
     '''Executes the model on the environment and only computes the hand-coded behavior. It also returns the final state.'''
     t0 = time.time()
     env: gym.Env = gym.make('LunarLander-v3')
@@ -60,15 +60,18 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_s
     state = None
     acc_reward = 0.0
 
+    actions = []
+
     impact_x_pos = None
     impact_y_vel = None
     all_y_vels = []
 
     for _ in range(sim_steps):
-        action, state = model.predict(obs, state=state, deterministic=True)
+        action, state = model.predict(obs, state=state, deterministic=deterministic)
         obs, reward, done, info = env.step(action)
         acc_reward += reward
 
+        actions.append(action)
         x_pos = obs[0]
         y_vel = obs[3]
         leg0_touch = bool(obs[6])
@@ -88,7 +91,35 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_s
     behavior = np.array([impact_x_pos, impact_y_vel])
     env.close()
     exec_time = time.time() - t0
-    return acc_reward, (reward == -100), behavior, obs, exec_time
+    return acc_reward, (reward == -100), behavior, obs, exec_time, actions
+
+
+def execute_stochastic_policy(
+        input: np.ndarray,
+        model: BaseAlgorithm,
+        env_seed: int,
+        n: int,
+        sim_steps: int = 1000
+        ) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
+    '''Executes n times a stochastic model and returns the results for each metric as lists.'''
+    rewards, failures, actions = [], [], []
+    for _ in range(n):
+        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, env_seed, deterministic=False, sim_steps=sim_steps)
+        rewards.append(acc_reward)
+        failures.append(failed)
+        actions.append(action_seq)
+
+    # 2d generic behavior space: action variance and mean of episodes' length
+    ep_length = [len(l) for l in actions]
+    min_length = min(ep_length)
+    action_std = np.mean(
+        np.std(
+            [sub_list[:min_length] for sub_list in actions], axis=0
+        )
+    )
+    mean_length = np.mean(ep_length)
+
+    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length])
 
 
 def execute_policy_trajectory(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
