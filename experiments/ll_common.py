@@ -100,14 +100,18 @@ def execute_stochastic_policy(
         env_seed: int,
         n: int,
         sim_steps: int = 1000
-        ) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
+        ) -> Tuple[float, float, np.ndarray, np.ndarray, np.ndarray]:
     '''Executes n times a stochastic model and returns the results for each metric as lists.'''
     rewards, failures, actions = [], [], []
+    # additional metrics
+    final_obs_list, behavior_list = [], []
     for _ in range(n):
         acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, env_seed, deterministic=False, sim_steps=sim_steps)
         rewards.append(acc_reward)
         failures.append(failed)
         actions.append(action_seq)
+        behavior_list.append(behavior)
+        final_obs_list.append(final_obs)
 
     # 2d generic behavior space: action variance and mean of episodes' length
     ep_length = [len(l) for l in actions]
@@ -119,7 +123,7 @@ def execute_stochastic_policy(
     )
     mean_length = np.mean(ep_length)
 
-    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length])
+    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length]), np.vstack(behavior_list), np.vstack(final_obs_list)
 
 
 def execute_policy_trajectory(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:

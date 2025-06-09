@@ -62,7 +62,7 @@ def generate_input(rng: np.random.Generator = None):
 
 
 def generate_inputs(rng: np.random.Generator, n: int):
-    return rng.integers(low=1, high=4, size=n)
+    return rng.integers(low=1, high=4, size=(n, 15))
 
 
 def load_model():
@@ -82,7 +82,7 @@ def get_inputs_from_keys(keys: Iterable[str]) -> np.ndarray:
     return np.array([np.asfarray(k.split(' '), dtype=str).astype(int) for k in keys])
 
 
-def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, descriptors: List = None, sim_steps: int = 300) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
+def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, descriptors: List = None, sim_steps: int = 300, deterministic: bool = True) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
     '''Executes the model on the environment and only computes the 12 features used by Leo Cazenille. It also returns the final state.'''
 
     env = gym.make('BipedalWalkerHardcore-v4', rand_seed=env_seed)
@@ -93,9 +93,12 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, descr
     obs = env.reset(input)
     state = None
     t0 = time.time()
+
+    action_seq = []
     for t in range(sim_steps):
-        action, state = model.predict(obs, state=state, deterministic=True)
+        action, state = model.predict(obs, state=state, deterministic=deterministic)
         obs, reward, done, info = env.step(action)
+        action_seq.append(action)
         features += info['features'] # numpy array
         acc_reward += reward
 
@@ -109,9 +112,43 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, descr
     if descriptors is not None:
         descriptors = np.array(descriptors)
         assert all(descriptors < 12) and all(descriptors >= 0)
-        return acc_reward, (reward == -100), features[descriptors], obs, exec_time
+        return acc_reward, (reward == -100), features[descriptors], obs, exec_time, np.array(action_seq)
     else:
-        return acc_reward, (reward == -100), features, obs, exec_time
+        return acc_reward, (reward == -100), features, obs, exec_time, np.array(action_seq)
+
+
+def execute_stochastic_policy(
+        input: np.ndarray,
+        model: BaseAlgorithm,
+        env_seed: int,
+        n: int,
+        sim_steps: int = 300
+        ) -> Tuple[float, float, np.ndarray, np.ndarray, np.ndarray]:
+    '''Executes n times a stochastic model and returns the results for each metric as lists.'''
+    rewards, failures, actions = [], [], []
+    # additional metrics
+    final_obs_list, behavior_list = [], []
+    for _ in range(n):
+        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, env_seed, deterministic=False, sim_steps=sim_steps)
+        rewards.append(acc_reward)
+        failures.append(failed)
+        actions.append(action_seq)
+        behavior_list.append(behavior)
+        final_obs_list.append(final_obs)
+
+    # 2d generic behavior space: action variance and mean of episodes' length
+    ep_length = [len(l) for l in actions]
+    min_length = min(ep_length)
+    action_std = np.mean(
+        np.std(
+            [sub_list[:min_length] for sub_list in actions], axis=0
+        )
+    )
+    mean_length = np.mean(ep_length)
+
+    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length]), np.vstack(behavior_list), np.vstack(final_obs_list)
+
+
 
 
 def execute_policy_trajectory(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 300) -> Tuple[float, bool, np.ndarray, List[np.ndarray], float]:
