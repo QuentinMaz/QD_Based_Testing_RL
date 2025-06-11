@@ -125,6 +125,7 @@ def execute_stochastic_policy(
     measures = dict(
         length_mean = np.mean(ep_length),
         length_std = np.std(ep_length),
+        length_spread = max(ep_length) - min(ep_length),
         action_std = compute_action_std(actions),
         action_entropy = compute_entropy(action_dist)
     )

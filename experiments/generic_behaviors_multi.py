@@ -8,11 +8,11 @@ from multiprocessing import Pool
 SEED = 1
 ENV_SEED = 0
 N = 3
-NUM_INPUTS = 10
-NUM_THREADS = 2
+NUM_INPUTS = 500
+NUM_THREADS = 20
 
 
-def runner(use_case, n, filepath):
+def runner(use_case, filepath):
     assert use_case in ["bw", "ll"]
     seed = int(str(time.time())[-4:])
     print(f"========= process {os.getpid()} starts with seed {seed} ========")
@@ -33,7 +33,7 @@ def runner(use_case, n, filepath):
         sim_steps = 300
 
     # dataframe storage
-    columns += ["reward_mean", "failure_prob", "length_mean", "length_std", "action_std", "action_entropy"]
+    columns += ["reward_mean", "failure_prob", "length_mean", "length_std", "length_spread", "action_std", "action_entropy"]
     data = {
         k: [] for k in columns
     }
@@ -69,11 +69,14 @@ if __name__ == "__main__":
     use_case = "ll" if len(sys.argv) == 1 else sys.argv[1]
     assert use_case in ["bw", "ll"]
 
-    DF_FILENAME = f"{use_case}_behavior_data"
+    from pathlib import Path
+    results_folder = Path(f"{use_case}_behaviors")
+    results_folder.mkdir(parents=True, exist_ok=True)
+    DF_FILENAME = str(results_folder / "data")
 
     pool = Pool(NUM_THREADS)
     args = [
-        (use_case, NUM_INPUTS, DF_FILENAME + f"_{s}")
+        (use_case, DF_FILENAME + f"_{s}")
           for s in range(NUM_THREADS)
         ]
     pool.starmap(runner, args)

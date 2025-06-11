@@ -34,7 +34,7 @@ if __name__ == "__main__":
         sim_steps = 300
 
     # dataframe storage
-    columns += ["reward_mean", "failure_prob", "length_mean", "length_std", "action_std", "action_entropy"]
+    columns += ["reward_mean", "failure_prob", "length_mean", "length_std", "length_spread", "action_std", "action_entropy"]
     data = {
         k: [] for k in columns
     }
