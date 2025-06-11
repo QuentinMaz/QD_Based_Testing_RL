@@ -5,6 +5,7 @@ import tqdm
 import numpy as np
 from typing import List, Tuple, Iterable
 
+from metrics import compute_action_distributions, compute_action_std, compute_entropy
 from stable_baselines3.common.base_class import BaseAlgorithm
 from sb3_contrib import TQC
 
@@ -66,7 +67,9 @@ def generate_inputs(rng: np.random.Generator, n: int):
 
 
 def load_model():
-    return TQC.load('rl-trained-agents/tqc/BipedalWalkerHardcore-v3_1/BipedalWalkerHardcore-v3.zip', custom_objects={}, kwargs={'seed': 0, 'buffer_size': 1})
+    return TQC.load(
+        'rl-trained-agents/tqc/BipedalWalkerHardcore-v3_1/BipedalWalkerHardcore-v3.zip',
+        custom_objects={}, kwargs={'seed': 0, 'buffer_size': 1}, device="cpu")
 
 
 def get_key(input: np.ndarray):
@@ -123,7 +126,7 @@ def execute_stochastic_policy(
         env_seed: int,
         n: int,
         sim_steps: int = 300
-        ) -> Tuple[float, float, np.ndarray, np.ndarray, np.ndarray]:
+        ) -> Tuple[float, float, np.ndarray, np.ndarray, dict]:
     '''Executes n times a stochastic model and returns the results for each metric as lists.'''
     rewards, failures, actions = [], [], []
     # additional metrics
@@ -136,17 +139,18 @@ def execute_stochastic_policy(
         behavior_list.append(behavior)
         final_obs_list.append(final_obs)
 
-    # 2d generic behavior space: action variance and mean of episodes' length
+    # metrics for possible generic behavior space
     ep_length = [len(l) for l in actions]
-    min_length = min(ep_length)
-    action_std = np.mean(
-        np.std(
-            [sub_list[:min_length] for sub_list in actions], axis=0
-        )
-    )
-    mean_length = np.mean(ep_length)
+    action_dist = compute_action_distributions(actions, range=[-1, 1], bins=10)
 
-    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length]), np.vstack(behavior_list), np.vstack(final_obs_list)
+    measures = dict(
+        length_mean = np.mean(ep_length),
+        length_std = np.std(ep_length),
+        action_std = compute_action_std(actions),
+        action_entropy = compute_entropy(action_dist)
+    )
+
+    return np.mean(rewards), np.mean(failures), np.vstack(behavior_list), np.vstack(final_obs_list), measures
 
 
 

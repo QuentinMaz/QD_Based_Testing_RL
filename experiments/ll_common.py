@@ -7,10 +7,12 @@ import tqdm
 import pandas as pd
 import numpy as np
 
+from metrics import compute_action_distributions, compute_action_std, compute_entropy
 from typing import List, Tuple
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3 import PPO
 import gym
+
 
 '''
 Lunar Lander problem use case study.
@@ -26,6 +28,7 @@ DEFAULT_MAX = 1000
 DEFAULT_MIN_INPUT = np.array([DEFAULT_MIN, DEFAULT_MIN])
 DEFAULT_MAX_INPUT = np.array([DEFAULT_MAX, DEFAULT_MIN])
 DEFAULT_MAX_DIST_INPUT: np.ndarray = np.linalg.norm(DEFAULT_MAX_INPUT - DEFAULT_MIN_INPUT)
+MAX_TIME = 300
 
 
 ###################### EXECUTION/EXPERIMENT SUPPORTERS ################################
@@ -48,9 +51,10 @@ def load_lunar_lander_model():
         'lr_schedule': lambda _: 0.0,
         'clip_range': lambda _: 0.0,
     }
-    return PPO.load('rl-trained-agents/ppo/LunarLander-v2_1/LunarLander-v2.zip', custom_objects=custom_objects)
+    return PPO.load('rl-trained-agents/ppo/LunarLander-v2_1/LunarLander-v2.zip', custom_objects=custom_objects, device="cpu")
 
 
+# can be used to study the case where we want to analyze the failures in details (i.e., the test input does include the seed + one execution)
 def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000, deterministic: bool = True) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
     '''Executes the model on the environment and only computes the hand-coded behavior. It also returns the final state.'''
     t0 = time.time()
@@ -94,13 +98,14 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_s
     return acc_reward, (reward == -100), behavior, obs, exec_time, actions
 
 
+# to study the case of testing overall agent's robustness (i.e., test input does not include the seed)
 def execute_stochastic_policy(
         input: np.ndarray,
         model: BaseAlgorithm,
         env_seed: int,
         n: int,
         sim_steps: int = 1000
-        ) -> Tuple[float, float, np.ndarray, np.ndarray, np.ndarray]:
+        ) -> Tuple[float, float, np.ndarray, np.ndarray, dict]:
     '''Executes n times a stochastic model and returns the results for each metric as lists.'''
     rewards, failures, actions = [], [], []
     # additional metrics
@@ -113,17 +118,18 @@ def execute_stochastic_policy(
         behavior_list.append(behavior)
         final_obs_list.append(final_obs)
 
-    # 2d generic behavior space: action variance and mean of episodes' length
+    # metrics for possible generic behavior space
     ep_length = [len(l) for l in actions]
-    min_length = min(ep_length)
-    action_std = np.mean(
-        np.std(
-            [sub_list[:min_length] for sub_list in actions], axis=0
-        )
-    )
-    mean_length = np.mean(ep_length)
+    action_dist = compute_action_distributions(actions, range=[0, 4], bins=4)
 
-    return np.mean(rewards), np.mean(failures), np.array([action_std, mean_length]), np.vstack(behavior_list), np.vstack(final_obs_list)
+    measures = dict(
+        length_mean = np.mean(ep_length),
+        length_std = np.std(ep_length),
+        action_std = compute_action_std(actions),
+        action_entropy = compute_entropy(action_dist)
+    )
+
+    return np.mean(rewards), np.mean(failures), np.vstack(behavior_list), np.vstack(final_obs_list), measures
 
 
 def execute_policy_trajectory(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
