@@ -34,6 +34,13 @@ FEATURES = [
     'meanLeg1KneeAngle',
     'meanLeg1KneeSpeed'
 ]
+MEASURES = [
+    "length_mean",
+    "length_std",
+    "length_spread",
+    "action_std",
+    "action_entropy",
+]
 # Input space according to MDPFuzz
 MIN_INPUT = np.array([1 for _ in range(15)])
 MAX_INPUT = np.array([3 for _ in range(15)])
@@ -123,20 +130,18 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, descr
 def execute_stochastic_policy(
         input: np.ndarray,
         model: BaseAlgorithm,
-        env_seed: int,
-        n: int,
+        env_seeds: List[int],
         sim_steps: int = 300
         ) -> Tuple[float, float, np.ndarray, np.ndarray, dict]:
     '''Executes n times a stochastic model and returns the results for each metric as lists.'''
     rewards, failures, actions = [], [], []
     # additional metrics
-    final_obs_list, behavior_list = [], []
-    for _ in range(n):
-        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, env_seed, deterministic=False, sim_steps=sim_steps)
+    final_obs_list = []
+    for seed in env_seeds:
+        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, seed, deterministic=True, sim_steps=sim_steps)
         rewards.append(acc_reward)
         failures.append(failed)
         actions.append(action_seq)
-        behavior_list.append(behavior)
         final_obs_list.append(final_obs)
 
     # metrics for possible generic behavior space
@@ -150,8 +155,10 @@ def execute_stochastic_policy(
         action_std = compute_action_std(actions),
         action_entropy = compute_entropy(action_dist)
     )
+    features = {k: v for k, v in zip(FEATURES, behavior)}
+    features.update(measures)
 
-    return np.mean(rewards), np.mean(failures), np.vstack(behavior_list), np.vstack(final_obs_list), measures
+    return np.mean(rewards), np.mean(failures), np.vstack(final_obs_list), features
 
 
 

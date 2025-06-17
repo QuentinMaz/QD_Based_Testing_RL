@@ -29,7 +29,15 @@ DEFAULT_MIN_INPUT = np.array([DEFAULT_MIN, DEFAULT_MIN])
 DEFAULT_MAX_INPUT = np.array([DEFAULT_MAX, DEFAULT_MIN])
 DEFAULT_MAX_DIST_INPUT: np.ndarray = np.linalg.norm(DEFAULT_MAX_INPUT - DEFAULT_MIN_INPUT)
 MAX_TIME = 300
-
+FEATURES = [
+    "length_mean",
+    "length_std",
+    "length_spread",
+    "action_std",
+    "action_entropy",
+    "impact_x_pos",
+    "impact_y_vel",
+]
 
 ###################### EXECUTION/EXPERIMENT SUPPORTERS ################################
 
@@ -102,20 +110,18 @@ def execute_policy(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_s
 def execute_stochastic_policy(
         input: np.ndarray,
         model: BaseAlgorithm,
-        env_seed: int,
-        n: int,
+        env_seeds: List[int],
         sim_steps: int = 1000
         ) -> Tuple[float, float, np.ndarray, np.ndarray, dict]:
     '''Executes n times a stochastic model and returns the results for each metric as lists.'''
     rewards, failures, actions = [], [], []
     # additional metrics
-    final_obs_list, behavior_list = [], []
-    for _ in range(n):
-        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, env_seed, deterministic=False, sim_steps=sim_steps)
+    final_obs_list = []
+    for seed in env_seeds:
+        acc_reward, failed, behavior, final_obs, exec_time, action_seq = execute_policy(input, model, seed, deterministic=True, sim_steps=sim_steps)
         rewards.append(acc_reward)
         failures.append(failed)
         actions.append(action_seq)
-        behavior_list.append(behavior)
         final_obs_list.append(final_obs)
 
     # metrics for possible generic behavior space
@@ -127,10 +133,12 @@ def execute_stochastic_policy(
         length_std = np.std(ep_length),
         length_spread = max(ep_length) - min(ep_length),
         action_std = compute_action_std(actions),
-        action_entropy = compute_entropy(action_dist)
+        action_entropy = compute_entropy(action_dist),
+        impact_x_pos = behavior[0],
+        impact_y_vel = behavior[1]
     )
 
-    return np.mean(rewards), np.mean(failures), np.vstack(behavior_list), np.vstack(final_obs_list), measures
+    return np.mean(rewards), np.mean(failures), np.vstack(final_obs_list), measures
 
 
 def execute_policy_trajectory(input: np.ndarray, model: BaseAlgorithm, env_seed: int, sim_steps: int = 1000) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:

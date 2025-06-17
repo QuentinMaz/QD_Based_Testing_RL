@@ -11,7 +11,7 @@ from typing import Tuple, Union, Dict, List
 EXPERIMENT_SEEDS = [2021, 42, 2023, 20, 0, 10, 4, 2006, 512, 1453]
 POP_SIZES = [100, 250, 500]
 ITERATIONS = [50, 20, 10]
-
+ENV_SEEDS = [0, 1, 2]
 
 ###############################################################################################
 ################################## CELL AND GRID HELPERS ######################################
@@ -60,6 +60,26 @@ def compute_grid_edges(bins: int = 50, mins: np.ndarray = None, maxs: np.ndarray
 
     edges = np.array([np.linspace(min, max, num=(bins + 1)) for min, max in zip(mins, maxs)])
     return edges, mins, maxs
+
+
+def compute_extrema(df: pd.DataFrame, columns: List[str]):
+    return pd.DataFrame(
+        data=[
+            df[columns].min().to_numpy(),
+            df[columns].max().to_numpy()
+            ],
+        columns=columns
+    )
+
+
+def get_bin_edges(df: pd.DataFrame, measures: List[str], num_bins: int = 50):
+    """Returns num_bins + 1 edges."""
+    return np.array(
+        [
+            np.linspace(*df[meas].to_list(), num=(num_bins + 1), endpoint=True)
+            for meas in measures
+        ]
+    )
 
 
 def get_histogram(behaviors: np.ndarray, xedges: np.ndarray, yedges: np.ndarray) -> np.ndarray:

@@ -259,14 +259,13 @@ class Framework():
             input: np.ndarray = self.executor.generate_input(self.rng)
 
             t0 = time.time()
-
             episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
                 input, model, n=n, deterministic=True
             )
-            fs = final_obs_list[0] #TODO
             t1 = time.time()
             execution_times.append(t1 - t0)
 
+            fs = final_obs_list[0] #TODO
             #TODO: if in dict
             behavior = np.array([measures[k] for k in self.features])
 
@@ -582,22 +581,21 @@ if __name__ == "__main__":
 
     torch.set_num_threads(1)
     main_seed = 2021
-    env_seeds = [0]
     dqnagent_path = "saved_models/dqnagent/checkpoint-35000.tar"
     model = HighwayTestManager.load_policy(dqnagent_path)
 
     # experimental parameters
-    test_budget = 50#00
-    init_budget = 10#00
+    test_budget = 5000
+    init_budget = 1000
     cell_granularity = 50
 
-    population_size, nb_iterations = 30, 3
+    population_size, nb_iterations = 100, 50
     k = 3
     novelty_threshold = 0.005
 
     descriptors = ["action_entropy", "length_spread"]
 
-    results_fp = Path("results/")
+    results_fp = Path("results/hw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)
@@ -606,17 +604,17 @@ if __name__ == "__main__":
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
 
-        # f = Framework(
-        #     seed,
-        #     cell_granularity,
-        #     features=FEATURES,
-        #     descriptors=descriptors,
-        #     name="Random Testing"
-        # )
-        # f.random_testing(
-        #     model, ENV_SEEDS,
-        #     test_budget, str(results_fp / "rt")
-        # )
+        f = Framework(
+            seed,
+            cell_granularity,
+            features=FEATURES,
+            descriptors=descriptors,
+            name="Random Testing"
+        )
+        f.random_testing(
+            model, ENV_SEEDS,
+            test_budget, str(results_fp / "rt")
+        )
 
         f = MAPElitesFramework(
             seed,
