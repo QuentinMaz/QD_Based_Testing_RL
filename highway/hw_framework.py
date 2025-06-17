@@ -6,36 +6,17 @@ import tqdm
 import numpy as np
 import pandas as pd
 
+from my_utils import compute_cell, get_bin_edges
 from stable_baselines3.common.base_class import BaseAlgorithm
 from typing import List, Tuple
 
-from src.hw.executor import HighwayTestManager
-
+from executor import HighwayTestManager
+from agents import AgentWrapper
 
 EXPERIMENT_SEEDS = [2021, 42, 2023, 20, 0, 10, 4, 2006, 512, 1453]
 ENV_SEEDS = [0, 1, 2]
 POP_SIZES = [100, 250, 500]
 ITERATIONS = [50, 20, 10]
-
-
-def compute_cell(behavior: np.ndarray, xedges: np.ndarray, yedges: np.ndarray) -> np.ndarray:
-    cell = []
-    # behavior must have a length of 2 of course...
-    for b, v in zip([xedges, yedges], behavior):
-        if v < b[1]:
-            cell.append(0)
-        elif v >= b[-2]:
-            cell.append(len(b) - 1)
-        else:
-            cell.append(np.argmax(v < b) - 1)
-    return np.array(cell)
-
-
-def get_edges(descriptors: np.ndarray) -> np.ndarray:
-    """Returns the grid edges."""
-    # edges = np.load(f"grid/bw/{env_seed}_{sim_steps}_edges.npy")
-    # return xedges, yedges
-    raise NotImplementedError
 
 
 class Framework():
@@ -119,8 +100,8 @@ class Framework():
             # a record consist of a score, the oracle result, the cell index, the cell and behavior point
             cell_dfs.append(
                 pd.DataFrame.from_records(
-                    data=[[score, is_faulty, i] + self.cells[i] + behavior.tolist() for (_input, score, is_faulty, behavior) in cell_data],
-                    columns=["score", "is_faulty", "cell_index"] + [f"cell{i}" for i in range(2)] + [f"behavior{i}" for i in range(2)]
+                    data=[[mean_acc_reward, failure_prob, i] + self.cells[i] + behavior.tolist() for (_input, mean_acc_reward, failure_prob, behavior) in cell_data],
+                    columns=["mean_acc_reward", "failure_prob", "cell_index"] + [f"cell{i}" for i in range(2)] + [f"behavior{i}" for i in range(2)]
                     )
                 )
         pd.concat(cell_dfs, ignore_index=True).to_csv(f"{filepath}_data.csv", index=0)
@@ -268,7 +249,7 @@ class Framework():
 
             t0 = time.time()
 
-            failure_prob, episode_reward, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
                 input, model, n=n, deterministic=True
             )
             fs = final_obs_list[0] #TODO
@@ -289,7 +270,10 @@ class Framework():
             failure_probs.append(failure_prob)
         behaviors = np.array(behaviors)
 
-        self.xedges, self.yedges = get_edges(self.descriptors)
+        df = pd.read_csv("measures.csv")
+        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+        df = df.loc[df.model_name==model_name]
+        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -316,7 +300,7 @@ class Framework():
 
             mutated_input = self.mutate(input)
             t0 = time.time()
-            failure_prob, episode_reward, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
                 mutated_input, model, n=n, deterministic=True
             )
             t1 = time.time()
@@ -386,8 +370,10 @@ class Framework():
         executions_budget = test_budget if test_budget > 12 else 10000
         print(f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.")
 
-
-        self.xedges, self.yedges = get_edges(self.descriptors)
+        df = pd.read_csv("measures.csv")
+        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+        df = df.loc[df.model_name==model_name]
+        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -402,7 +388,7 @@ class Framework():
         while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
             input: np.ndarray = self.executor.generate_input(self.rng)
             t0 = time.time()
-            failure_prob, episode_reward, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
                 input, model, n=n, deterministic=True
             )
             fs = final_obs_list[0] #TODO
@@ -473,7 +459,10 @@ class Framework():
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
         logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
 
-        self.xedges, self.yedges = get_edges(self.descriptors)
+        df = pd.read_csv("measures.csv")
+        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+        df = df.loc[df.model_name==model_name]
+        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -492,7 +481,7 @@ class Framework():
         def evaluate(individuals: np.ndarray) -> np.ndarray:
             behaviors = []
             for ind in individuals:
-                fp, r, final_obs_list, measures = self.executor.execute_stochastic_policy(
+                r, fp, final_obs_list, measures = self.executor.execute_stochastic_policy(
                     ind, model, n=n, deterministic=True
                 )
                 fs = final_obs_list[0] #TODO
@@ -584,7 +573,7 @@ class MAPElitesFramework(Framework):
             # the best performing input is one whose score is the maximum, since it corresponds to the failure probability.
             best_performer_index = int(np.argmax(failure_probs))
         else:
-            print("No failure trigeering input found in cell index {}.".format(index))
+            print("No failure triggering input found in cell index {}.".format(index))
             scores = list(map(lambda x: x[1], self.cells_data[index]))
             best_performer_index = int(np.argmin(scores))
         return self.cells_data[index][best_performer_index][0]
@@ -609,20 +598,38 @@ if __name__ == "__main__":
     k = 3
     novelty_threshold = 0.005
 
-    descriptors = ["action_entropy", "episode_spread"]
+    descriptors = ["action_entropy", "length_spread"]
 
     results_fp = Path("results/")
     results_fp.mkdir(parents=True, exist_ok=True)
+    (results_fp / "qd").mkdir(parents=True, exist_ok=True)
+    (results_fp / "ns").mkdir(parents=True, exist_ok=True)
+    (results_fp / "rt").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS:
         print(f"Seed {seed} starts.")
+
+        f = Framework(
+            seed,
+            cell_granularity,
+            descriptors=descriptors,
+            name="Random Testing"
+        )
+        f.random_testing(
+            model, ENV_SEEDS,
+            test_budget, str(results_fp / "rt")
+        )
+
         f = MAPElitesFramework(
             seed,
             cell_granularity,
             descriptors=descriptors,
             name="MAP-Elites"
         )
-        f.test_policy(model, ENV_SEEDS, test_budget, init_budget, str(results_fp))
+        f.test_policy(
+            model, ENV_SEEDS, test_budget,
+            init_budget, str(results_fp / "qd")
+        )
 
         f = Framework(seed, cell_granularity, descriptors=descriptors, name=f"Novelty Search")
         f.novelty_search(
@@ -632,5 +639,5 @@ if __name__ == "__main__":
             nb_iterations,
             k,
             novelty_threshold,
-            str(results_fp)
+            str(results_fp / "ns")
         )

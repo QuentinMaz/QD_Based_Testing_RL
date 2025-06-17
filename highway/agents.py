@@ -74,9 +74,10 @@ ENV_CONFIG = {
 class AgentWrapper:
     """Wrapper class for using agents from rl_agents as SB3 ones."""
 
-    def __init__(self, agent) -> None:
+    def __init__(self, agent, model_name: str = None) -> None:
         self.agent = agent
         self.device = self.agent.device
+        self.model_name = model_name
         # should not be necessary
         try:
             self.agent.eval()
@@ -114,7 +115,8 @@ def load_dqnagent(path: str):
     agent = load_agent(AGENT_CONFIG, env)  # type: DQNAgent
     env.close()
     agent.load(path)
-    return AgentWrapper(agent)
+    model_name = path.split("-")[-1].split(".")[0]
+    return AgentWrapper(agent, model_name=f"DQNAgent-{model_name}")
 
 
 MODEL_DICT = {"DQNAgent": load_dqnagent, "DQN": load_dqn}

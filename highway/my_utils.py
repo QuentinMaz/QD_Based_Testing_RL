@@ -8,6 +8,40 @@ import pickle
 from typing import List
 
 import numpy as np
+import pandas as pd
+
+
+def compute_cell(behavior: np.ndarray, xedges: np.ndarray, yedges: np.ndarray) -> np.ndarray:
+    cell = []
+    # behavior must have a length of 2 of course...
+    for b, v in zip([xedges, yedges], behavior):
+        if v < b[1]:
+            cell.append(0)
+        elif v >= b[-2]:
+            cell.append(len(b) - 1)
+        else:
+            cell.append(np.argmax(v < b) - 1)
+    return np.array(cell)
+
+
+# def compute_extrema(df: pd.DataFrame, columns: List[str]):
+#     return pd.DataFrame(
+#         data=[
+#             df[columns].min().to_numpy(),
+#             df[columns].max().to_numpy()
+#             ],
+#         columns=columns
+#     )
+
+
+def get_bin_edges(df: pd.DataFrame, measures: List[str], num_bins: int = 50) -> np.ndarray:
+    """Returns num_bins + 1 edges."""
+    return np.array(
+        [
+            np.linspace(*df[meas].to_list(), num=(num_bins + 1), endpoint=True)
+            for meas in measures
+        ]
+    )
 
 
 def encode_input(x: np.ndarray):
