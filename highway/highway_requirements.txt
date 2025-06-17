@@ -1,0 +1,22 @@
+# python 3.10.12
+
+numpy==1.26.2
+gymnasium==0.29.1
+stable_baselines3==2.2.1
+pandas==2.1.3
+highway_env==1.8.2
+# hardware-specific Pytorch
+# torch
+# torchvision
+# torchaudio
+
+scikit-learn
+logdir
+
+tensorboard # 2.17.0
+# https://github.com/tensorflow/tensorboard/issues/6808#issue-2205808651
+protobuf==4.25.0
+
+tqdm
+
+git+https://github.com/eleurent/rl-agents
