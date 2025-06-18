@@ -157,7 +157,7 @@ class HighwayTestManager(TestManager):
         deterministic: bool = True,
         seed: int = None,
     ) -> Tuple[float, float, int, np.ndarray]:
-        failure, obs_seq, action_seq, reward_seq, trajectory, _frames = (
+        failure, final_obs, action_seq, reward_seq, measures, _frames = (
             self._record_execution(
                 policy, input, record=False, deterministic=deterministic, seed=seed
             )
@@ -166,14 +166,16 @@ class HighwayTestManager(TestManager):
 
     def execute_stochastic_policy(
         self, input: np.ndarray, policy: Any, n: int, deterministic: bool = False
-    ) -> Tuple[float, float, list[np.ndarray], dict[str, float]]:
+    ) -> Tuple[float, float, list[np.ndarray], list[np.ndarray], dict[str, float]]:
         assert (n > 0) and (n <= len(self.seeds))
         failures = []
         actions = []
         acc_rewards = []
         final_obs_list = []
+        behaviors_list = []
+
         for i in range(n):
-            failure, obs_seq, action_seq, reward_seq, _trajectory, _frames = (
+            failure, final_obs, action_seq, reward_seq, behaviors, _frames = (
                 self._record_execution(
                     policy,
                     input,
@@ -185,7 +187,8 @@ class HighwayTestManager(TestManager):
             failures.append(failure)
             actions.append(action_seq)
             acc_rewards.append(np.sum(reward_seq))
-            final_obs_list.append(np.vstack(obs_seq))
+            final_obs_list.append(final_obs)
+            behaviors_list.append(np.array(list(behaviors.values())))
 
         # metrics for possible generic behavior space
         ep_length = [len(l) for l in actions]
@@ -199,7 +202,7 @@ class HighwayTestManager(TestManager):
             action_entropy=compute_entropy(action_dist),
         )
 
-        return np.mean(acc_rewards), np.mean(failures), final_obs_list, measures
+        return np.mean(acc_rewards), np.mean(failures), final_obs_list, behaviors_list, measures
 
     def _record_execution(
         self,
@@ -208,17 +211,18 @@ class HighwayTestManager(TestManager):
         record: bool = False,
         deterministic: bool = True,
         seed: int = None,
-    ) -> Tuple[bool, np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[np.ndarray]]:
+    ) -> Tuple[bool, np.ndarray, np.ndarray, np.ndarray, dict[str, float], List[np.ndarray]]:
         if seed is None:
             seed = self.seeds[0]
 
         obs, _info = self.env.reset(seed=seed, options={"config": {"input": positions}})
 
-        obs_seq = []
+        # obs_seq = []
         action_seq = []
         reward_seq = []
-        trajectory = []
+        # trajectory = []
         frames = []
+        speeds = []
 
         terminated = truncated = False
 
@@ -231,22 +235,34 @@ class HighwayTestManager(TestManager):
             )
             obs, reward, terminated, truncated, info = self.env.step(action)
 
-            obs_seq.append(obs)
+            # obs_seq.append(obs)
             action_seq.append(action)
             reward_seq.append(reward)
-            trajectory.append(
-                np.array(self.env.get_wrapper_attr("controlled_vehicles")[0].position)
-            )
+            speeds.append(info["speed"])
+            # trajectory.append(
+            #     np.array(self.env.get_wrapper_attr("controlled_vehicles")[0].position)
+            # )
+
 
         if record:
             frames.append(self.env.render())
 
+        xpos = [v.position[0] for v in self.env.get_wrapper_attr("road").vehicles]
+
+        measures = {
+            "mean_speed": np.mean(speeds),
+            "num_overtaking": sorted(xpos).index(
+                self.env.get_wrapper_attr("controlled_vehicles")[0].position[0]
+                )
+        }
+
         return (
             info["crashed"],
-            np.array(obs_seq),
+            obs.copy(),
             np.array(action_seq),
             np.array(reward_seq),
-            np.vstack(trajectory),
+            measures,
+            # np.vstack(trajectory),
             frames,
         )
 

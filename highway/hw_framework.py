@@ -237,10 +237,18 @@ class Framework():
             filepath = results_fp
 
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        final_states_buffer = open(f"{filepath}_final_states.txt", "w", buffering=1)
         inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
         logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
+        # saves the N final states and expert behaviors separately
+        final_states_buffers = [
+            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
+        expert_behaviors_buffers = [
+            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
 
 
         time_budget = min(12, test_budget) * 3600
@@ -249,7 +257,8 @@ class Framework():
 
         inputs: List[np.ndarray] = []
         behaviors = []
-        final_states: List[np.ndarray] = []
+        expert_behaviors = []
+        final_states: List[List[np.ndarray]] = []
         acc_rewards: List[float] = []
         failure_probs: List[float] = []
         testing_start_time = time.time()
@@ -259,19 +268,18 @@ class Framework():
             input: np.ndarray = self.executor.generate_input(self.rng)
 
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
                 input, model, n=n, deterministic=True
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
 
-            fs = final_obs_list[0] #TODO
-            #TODO: if in dict
             behavior = np.array([measures[k] for k in self.features])
 
             inputs.append(input)
             behaviors.append(behavior)
-            final_states.append(fs)
+            final_states.append(final_obs_list)
+            expert_behaviors.append(behaviors_list)
             acc_rewards.append(episode_reward)
             failure_probs.append(failure_prob)
 
@@ -294,8 +302,11 @@ class Framework():
             print(f"episode_reward: {acc_rewards[i]}, failure_prob: {failure_probs[i]}, cell_selected_index: -1, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
             np.savetxt(inputs_buffer, inputs[i].reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(final_states_buffer, final_states[i].reshape(1, -1), delimiter=",")
             np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            for fs_buffer, fs in zip(final_states_buffers, final_states[i]):
+                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
+            for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors[i]):
+                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
         start_time = time.time()
         current_time = time.time()
@@ -309,13 +320,12 @@ class Framework():
 
             mutated_input = self.mutate(input)
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
                 mutated_input, model, n=n, deterministic=True
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
 
-            fs = final_obs_list[0] #TODO
             behavior = np.array([measures[k] for k in self.features])
 
             cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
@@ -324,8 +334,13 @@ class Framework():
             print(f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
             np.savetxt(inputs_buffer, mutated_input.reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(final_states_buffer, fs.reshape(1, -1), delimiter=",")
             np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+
+            for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
+                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
+            for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
+                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+
             current_time = time.time()
             nb_executions += 1
             pbar.update(1)
@@ -341,7 +356,8 @@ class Framework():
         inputs_buffer.close()
         cells_buffer.close()
         logs_buffer.close()
-        final_states_buffer.close()
+        for buffer in final_states_buffers + expert_behaviors_buffers:
+            buffer.close()
         self.save_state(filepath)
 
 
@@ -364,10 +380,18 @@ class Framework():
             filepath = results_fp
 
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        final_states_buffer = open(f"{filepath}_final_states.txt", "w", buffering=1)
         inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
         logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
+        # saves the N final states and expert behaviors separately
+        final_states_buffers = [
+            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
+        expert_behaviors_buffers = [
+            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
 
 
         time_budget = min(12, test_budget) * 3600
@@ -392,10 +416,9 @@ class Framework():
         while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
             input: np.ndarray = self.executor.generate_input(self.rng)
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = self.executor.execute_stochastic_policy(
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
                 input, model, n=n, deterministic=True
             )
-            fs = final_obs_list[0] #TODO
             t1 = time.time()
             execution_times.append(t1 - t0)
             behavior = np.array([measures[k] for k in self.features])
@@ -405,8 +428,13 @@ class Framework():
             print(f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
             np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(final_states_buffer, fs.reshape(1, -1), delimiter=",")
             np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+
+            for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
+                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
+            for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
+                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+
             current_time = time.time()
             nb_executions += 1
             pbar.update(1)
@@ -422,7 +450,8 @@ class Framework():
         inputs_buffer.close()
         cells_buffer.close()
         logs_buffer.close()
-        final_states_buffer.close()
+        for buffer in final_states_buffers + expert_behaviors_buffers:
+            buffer.close()
         self.save_state(filepath)
 
 
@@ -453,10 +482,18 @@ class Framework():
 
         # to collect the data during the search, i.e., every model execution
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        final_states_buffer = open(f"{filepath}_final_states.txt", "w", buffering=1)
         inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
         logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
+        # saves the N final states and expert behaviors separately
+        final_states_buffers = [
+            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
+        expert_behaviors_buffers = [
+            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
 
         df = pd.read_csv("measures.csv")
         model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
@@ -467,7 +504,11 @@ class Framework():
         self.config["yedges"] = list(self.xedges)
 
         # helpers 1: recording the executions during each iteration
-        def record(input: np.ndarray, reward: float, failure_prob: float, behavior: np.ndarray, final_state: np.ndarray) -> None:
+        def record(
+                input: np.ndarray, reward: float, failure_prob: float,
+                behavior: np.ndarray,
+                final_states_list: List[np.ndarray], expert_behaviors_list: List[np.ndarray]
+                ) -> None:
             cell = compute_cell(
                 behavior[self.descriptor_indices],
                 self.xedges, self.yedges).tolist()
@@ -476,19 +517,21 @@ class Framework():
             print(f"episode_reward: {reward}, failure_prob: {failure_prob}, cell_updated_index: {updated_cell_index}, nb_cells: {len(self.cells)}", file=logs_buffer)
             np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(final_states_buffer, final_state.reshape(1, -1), delimiter=",")
             np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            for fs_buffer, fs in zip(final_states_buffers, final_states_list):
+                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
+            for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors_list):
+                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+
         # helpers 2: evaluates a batch of individuals
         def evaluate(individuals: np.ndarray) -> np.ndarray:
             behaviors = []
             for ind in individuals:
-                r, fp, final_obs_list, measures = self.executor.execute_stochastic_policy(
+                r, fp, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
                     ind, model, n=n, deterministic=True
                 )
-                fs = final_obs_list[0] #TODO
                 b = np.array([measures[k] for k in self.features])
-                # r, o, b, fs, _ = execute_policy(ind, model, env_seed, self.descriptors, 300)
-                record(ind, r, fp, b, fs)
+                record(ind, r, fp, b, final_obs_list, behaviors_list)
                 behaviors.append(b)
             return np.array(behaviors)
         # helper 3: mutates a batch of individuals
@@ -545,8 +588,10 @@ class Framework():
         inputs_buffer.close()
         cells_buffer.close()
         logs_buffer.close()
-        final_states_buffer.close()
+        for buffer in final_states_buffers + expert_behaviors_buffers:
+            buffer.close()
         self.save_state(filepath)
+
 
 #TODO: this version can actually only keep the best performing input per cell (since all execution data is recorded during testing)
 class MAPElitesFramework(Framework):
@@ -585,11 +630,12 @@ if __name__ == "__main__":
     model = HighwayTestManager.load_policy(dqnagent_path)
 
     # experimental parameters
-    test_budget = 5000
-    init_budget = 1000
+    test_budget = 50#00
+    init_budget = 10#00
     cell_granularity = 50
 
-    population_size, nb_iterations = 100, 50
+    # population_size, nb_iterations = 100, 50
+    population_size, nb_iterations = 10, 5
     k = 3
     novelty_threshold = 0.005
 
