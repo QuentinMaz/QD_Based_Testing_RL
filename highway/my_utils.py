@@ -5,7 +5,7 @@ File containing utility functions that do not need to be classes.
 import json
 import warnings
 import pickle
-from typing import List
+from typing import List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -24,15 +24,14 @@ def compute_cell(behavior: np.ndarray, xedges: np.ndarray, yedges: np.ndarray) -
     return np.array(cell)
 
 
-# def compute_extrema(df: pd.DataFrame, columns: List[str]):
-#     return pd.DataFrame(
-#         data=[
-#             df[columns].min().to_numpy(),
-#             df[columns].max().to_numpy()
-#             ],
-#         columns=columns
-#     )
-
+def compute_extrema(df: pd.DataFrame, columns: List[str]):
+    return pd.DataFrame(
+        data=[
+            df[columns].min().to_numpy(),
+            df[columns].max().to_numpy()
+            ],
+        columns=columns
+    )
 
 def get_bin_edges(df: pd.DataFrame, measures: List[str], num_bins: int = 50) -> np.ndarray:
     """Returns num_bins + 1 edges."""
@@ -42,6 +41,22 @@ def get_bin_edges(df: pd.DataFrame, measures: List[str], num_bins: int = 50) -> 
             for meas in measures
         ]
     )
+
+def compute_cell_filling(behaviors: np.ndarray, descriptor_indices_list: List[List[int]], edges: List[Tuple[np.ndarray, np.ndarray]]):
+    """Compute the (grid) cells of 2 behavior points in `behaviors` given pairs of the behavior indices."""
+
+    indices_arr = np.array(descriptor_indices_list)
+
+
+    return [
+        np.apply_along_axis(
+            func1d=lambda x: compute_cell(x[idx], xedges, yedges),
+            axis=1,
+            arr=behaviors
+        )
+        for idx, (xedges, yedges) in zip(indices_arr, edges)
+    ]
+
 
 
 def encode_input(x: np.ndarray):

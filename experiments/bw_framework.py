@@ -1,192 +1,64 @@
 import json
 import os
 import time
-import torch
-import tqdm
+from typing import Any, List, Tuple
+
+import gym
 import numpy as np
-import pandas as pd
+import torch
+from common import ENV_SEEDS, EXPERIMENT_SEEDS, MEASURES, load_bipedal_walker_model
+from mdpfuzz.executor import Executor
+from mdpfuzz.mdpfuzz import Fuzzer
 
-from stable_baselines3.common.base_class import BaseAlgorithm
-from typing import List, Tuple
+from framework import Framework
 
-from bw_common import FEATURES, MEASURES, load_model, execute_stochastic_policy
-from common import compute_cell, EXPERIMENT_SEEDS, ENV_SEEDS, get_bin_edges
-
-class Framework():
-    def __init__(self, rand_seed: int, cell_granularity: int, features: List[str], descriptors: Tuple[str, str], **kwargs) -> None:
-        self.version = 'random'
-        self.rand_seed = rand_seed
-        self.rng: np.random.Generator = np.random.default_rng(rand_seed)
-        self.creation_time = time.time()
-
-        self.loaded = False
-        self.has_init = False
-        self.test_budget = None
-        self.init_budget = None
-
-        self.granularity = cell_granularity
-        self.features = features
-        self.descriptors = descriptors
-
-        if not all(isinstance(v, str) for v in self.descriptors):
-            raise ValueError("The descriptors must be string.")
-
-        if not all(v in self.features for v in self.descriptors):
-            raise ValueError("The descriptors must be in the feature list.")
-
-        self.descriptor_indices = [self.features.index(d) for d in self.descriptors]
-
-        # as indices
-        self.last_cell_selected = None
-        self.last_cell_updated = None
-
-        # data structure consists of a list of cells (list of integers) and a list of list of test results
-        self.cells: list[list[int]] = []
-        # the test case results for each cell explored (input, performance, oracle result, behavior)
-        self.cells_data: list[list[tuple[np.ndarray, float, bool, np.ndarray]]] = []
-
-        self.config = {
-            "rand_seed": self.rand_seed,
-            "cell_granularity": self.granularity,
-            "features": self.features,
-            "descriptors": self.descriptors,
-            "descriptor_indices": self.descriptor_indices,
-            'use_case': 'Bipedal Walker'
-        }
-
-        # kwargs (name to include in the experimental configuration etc.)
-        self.name = kwargs.get('name')
-        if self.name is not None:
-            self.config['name'] = self.name
-        else:
-            self.config['name'] = self.version
+FEATURES = [
+    "meanDistance",
+    "meanHeadStability",
+    "meanTorquePerStep",
+    "meanJump",
+    "meanLeg0HipAngle",
+    "meanLeg0HipSpeed",
+    "meanLeg0KneeAngle",
+    "meanLeg0KneeSpeed",
+    "meanLeg1HipAngle",
+    "meanLeg1HipSpeed",
+    "meanLeg1KneeAngle",
+    "meanLeg1KneeSpeed",
+]
+MIN_INPUT = np.array([1 for _ in range(15)])
+MAX_INPUT = np.array([3 for _ in range(15)])
+MAX_DIST_INPUT: np.ndarray = np.linalg.norm(MAX_INPUT - MIN_INPUT)
+AVG_SIZE = 30
+EXPERT_INDICES = [[0, 1], [2, 3], [4, 8], [5, 11]]
+EXPERT_PLOT_ARGS = [
+    {
+        "xlabel": "distance to the goal",
+        "ylabel": "hull angle",
+        "title": "Distance vs Hull angle",
+    },
+    {"xlabel": "torque (actions)", "ylabel": "jump rate", "title": "Torque vs Jump"},
+    {"xlabel": "1st leg", "ylabel": "2nd leg", "title": "Hip angles"},
+    {"xlabel": "1st leg", "ylabel": "2nd leg", "title": "Hip speeds"},
+]
 
 
-    def save_configuration(self, filepath: str):
-        '''
-        Saves the configuration of the object.
-        This lets us know what BS has been used, which can be handy for organizing the results and to compare to MDPFuzz.
-        '''
-        if not filepath.endswith('config'):
-            filepath += '_config'
-        f = open(f'{filepath}.json', 'w')
-        f.write(json.dumps(self.config))
-        f.close()
+class BWFramework(Framework):
+    def __init__(self, rand_seed, cell_granularity, features, descriptors, **kwargs):
+        super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
 
+        self.action_range = [-1, 1]  # type: Tuple[int, int]
+        self.action_bins = 10  # type: int
+        self.path_to_measures_extrema = "grid/bw/measures.csv"  # type: str
+        self.use_case = "Bipedal Walker"
 
-    def save_random_state(self, filepath: str):
-        '''Saves the state of the BitGenerator instance (of the Generator).'''
-        f = open(f'{filepath}_state.json', 'w')
-        f.write(json.dumps(self.rng.bit_generator.state))
-        f.close()
-        return self.rng.bit_generator.state
+    def generate_input(self, **kwargs):
+        return self.rng.integers(low=1, high=4, size=15)
 
+    def generate_inputs(self, n, **kwargs):
+        return self.rng.integers(low=1, high=4, size=(n, 15))
 
-    def save_state(self, filepath: str):
-        """
-        Saves the current state of the framework to possibly resume execution.
-        The resulting data is a .csv file export of a DataFrame and a .npy file of the inputs.
-        Both data shares the same order, which is not temporal (logs are though) but results from iterating over the results for each cell.
-        """
-        cell_dfs = []
-        for i, cell_data in enumerate(self.cells_data):
-            # a record consist of a score, the oracle result, the cell index, the cell and behavior point
-            cell_dfs.append(
-                pd.DataFrame.from_records(
-                    data=[[mean_acc_reward, failure_prob, i] + self.cells[i] + behavior.tolist() for (_input, mean_acc_reward, failure_prob, behavior) in cell_data],
-                    columns=["mean_acc_reward", "failure_prob", "cell_index"] + [f"cell{i}" for i in range(2)] + self.features
-                    )
-                )
-        pd.concat(cell_dfs, ignore_index=True).to_csv(f"{filepath}_data.csv", index=0)
-        # saves the inputs in a .npy file
-        np.save(f"{filepath}_inputs.npy", np.concatenate([np.array(list(map(lambda x: x[0], cell_data))) for cell_data in self.cells_data]))
-        # saves the random state
-        self.save_random_state(filepath)
-        # saves the configuration
-        self.save_configuration(filepath)
-
-
-    def load_configuration(self, filepath: str):
-        '''Loads and sets the configuration attribute of the instance.'''
-        if not filepath.endswith('config'):
-            filepath += '_config'
-        f = open(f'{filepath}.json', 'r')
-        self.config = json.load(f)
-        f.close()
-
-
-    def load_random_state(self, filepath: str):
-        '''Loads and sets the state of BitGenerator instance (of the Generator).'''
-        if not filepath.endswith('state'):
-            filepath += '_state'
-        f = open(f'{filepath}.json', 'r')
-        self.rng.bit_generator.state = json.load(f)
-        f.close()
-
-
-    def load_state(self, filepath: str):
-        '''Loads a state of an instance to resume testing and returns the number of test cases loaded.'''
-        inputs_fp, df_fp = f'{filepath}_inputs.npy', f'{filepath}_data.csv'
-
-        assert os.path.exists(inputs_fp) and os.path.exists(df_fp), 'files are missing.'
-        self.cells = []
-        self.cells_data = []
-
-        inputs = np.load(inputs_fp)
-        df = pd.read_csv(df_fp)
-        assert len(inputs) == len(df)
-
-        # removes 1 because of cell_index column
-        bs_dim = len([c for c in df.columns.to_list() if c.startswith('cell')]) - 1
-        assert bs_dim > 0
-
-        for i, row in df.iterrows():
-            row_data = row.tolist()
-            cell, input, performance, is_faulty, behavior = row_data[3:3 + bs_dim], inputs[i], row_data[0], row_data[1], row_data[3 + bs_dim:]
-            self.update_cell(cell, input, performance, is_faulty, np.array(behavior))
-
-        self.load_random_state(filepath)
-        self.load_configuration(filepath)
-        self.loaded = True
-        return len(df)
-
-
-    def select_input(self, index: int):
-        '''Samples from the indexed cell the next input.'''
-        # inputs = list(map(lambda x: x[0], self.cells_data[index]))
-        # print(f'[GET INPUT LOG] NB INPUTS FOUND IN CELL {index}: {len(inputs)}.')
-        input_index: int = self.rng.integers(0, len(self.cells_data[index]))
-        return self.cells_data[index][input_index][0]
-
-
-    def select_cell(self):
-        '''Selects the cell for the next search iteration.'''
-        return int(self.rng.integers(0, len(self.cells)))
-
-
-    def update_cell(self, cell: List[int], input: np.ndarray, performance: float, is_faulty: bool, behavior: np.ndarray):
-        '''
-        Records the execution result to the corresponding cell.
-        It returns the index of the cell updated.
-        '''
-        index = None
-        try:
-            # index of the cell to update
-            index = self.cells.index(cell)
-            self.cells_data[index].append((input, performance, is_faulty, behavior))
-            # print(f'[DATA UPDATE LOG] CELL {index} UPDATED: {len(cells_data[index])} RECORDS; AVG SCORE: {np.mean(list(map(lambda x: x[1], cells_data[index]))):.2f}.')
-        except ValueError:
-            self.cells.append(cell)
-            self.cells_data.append([(input, performance, is_faulty, behavior)])
-            # print(f'[DATA UPDATE LOG] NEW CELL CREATED. CURRENT SCORE: {performance}.')
-        finally:
-            # sanity checks
-            assert len(self.cells) == len(self.cells_data), 'inconsistent cells and cells_data lists!'
-            self.last_cell_updated = index if index is not None else (len(self.cells) - 1)
-        return self.last_cell_updated
-
-
-    def mutate(self, input: np.ndarray) -> np.ndarray:
+    def mutate(self, input, **kwargs):
         mutation = self.rng.choice(2, 15, p=[0.9, 0.1])
         if np.sum(mutation) == 0:
             mutation[0] = 1
@@ -195,403 +67,214 @@ class Framework():
         mutated_input = np.clip(mutated_input, 1, 3)
         return mutated_input
 
+    def execute_policy(self, input, model, env_seed, deterministic=True):
+        env = gym.make("BipedalWalkerHardcore-v4", rand_seed=env_seed)
 
-    def test_policy(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    test_budget: int,
-                    init_budget: int,
-                    results_fp: str,
-                    disable_pbar: bool = False):
+        acc_reward = 0.0
+        features = np.zeros(12)
 
-        assert test_budget > init_budget
-        self.test_budget = test_budget
-        self.config['test_budget'] = self.test_budget
-        self.init_budget = init_budget
-        self.config['init_budget'] = self.init_budget
+        obs = env.reset(input)
+        state = None
+        t0 = time.time()
 
-        self.config['env_seeds'] = env_seeds
+        action_seq = []
+        for t in range(300):
+            action, state = model.predict(obs, state=state, deterministic=deterministic)
+            obs, reward, done, info = env.step(action)
+            action_seq.append(action)
+            features += info["features"]  # numpy array
+            acc_reward += reward
+
+            if done:
+                break
+
+        env.close()
+        features /= t
+        exec_time = time.time() - t0
+
+        return (
+            acc_reward,
+            (reward == -100),
+            features,
+            obs,
+            exec_time,
+            np.array(action_seq),
+        )
 
 
-        if os.path.isdir(results_fp):
-            filepath = f'{results_fp}{self.creation_time}' if results_fp.endswith('/') else f'{results_fp}/{self.creation_time}'
+class BWExecutor(Executor):
+
+    def __init__(self, rand_seed: int, env_seeds: List[int], log_path: str) -> None:
+        super().__init__(sim_steps=0, env_seed=0)
+        self.executor = BWFramework(
+            rand_seed=rand_seed,
+            cell_granularity=50,
+            features=MEASURES,
+            descriptors=[],
+        )
+
+        self.env_seeds = env_seeds
+
+        self.creation_time = time.time()
+        if os.path.isdir(log_path):
+            filepath = (
+                f"{log_path}{self.creation_time}"
+                if log_path.endswith("/")
+                else f"{log_path}/{self.creation_time}"
+            )
         else:
-            filepath = results_fp
+            filepath = log_path
 
-        behaviors_buffer = open(f'{filepath}_behaviors.txt', 'w', buffering=1)
-        final_states_buffer = open(f'{filepath}_final_states.txt', 'w', buffering=1)
-        inputs_buffer = open(f'{filepath}_inputs.txt', 'w', buffering=1)
-        cells_buffer = open(f'{filepath}_cells.txt', 'w', buffering=1)
-        logs_buffer = open(f'{filepath}_logs.txt', 'w', buffering=1)
+        self.fp = filepath
+        self.behaviors_buffer = open(f"{self.fp}_behaviors.txt", "w", buffering=1)
+        self.inputs_buffer = open(f"{self.fp}_inputs.txt", "w", buffering=1)
+        self.logs_buffer = open(f"{self.fp}_logs.txt", "w", buffering=1)
+        self.final_states_buffers = [
+            open(f"{self.fp}_final_states_{seed}.txt", "w", buffering=1)
+            for seed in self.env_seeds
+        ]
+        self.expert_behaviors_buffers = [
+            open(f"{self.fp}_expert_behaviors_{seed}.txt", "w", buffering=1)
+            for seed in self.env_seeds
+        ]
 
+        self.features = MEASURES
 
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget - init_budget if test_budget > 12 else 10000
-        print(f'Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.')
+        self.config = {
+            "use_case": "Bipedal Walker",
+            "name": "MDPFuzz",
+            "env_seeds": self.env_seeds,
+            "features": self.features,
+        }
 
-        inputs: List[np.ndarray] = []
-        behaviors = []
-        final_states: List[np.ndarray] = []
-        acc_rewards: List[float] = []
-        failure_probs: List[float] = []
-        testing_start_time = time.time()
-        execution_times = []
+    def generate_input(self, rng: np.random.Generator) -> np.ndarray:
+        return self.executor.generate_input()
 
-        for _ in tqdm.tqdm(range(init_budget), disable=disable_pbar):
-            input: np.ndarray = self.rng.integers(low=1, high=4, size=15)
+    def generate_inputs(self, rng: np.random.Generator, n: int) -> np.ndarray:
+        return self.executor.generate_inputs(n)
 
-            t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = execute_stochastic_policy(input, model, env_seeds, 300)
-            t1 = time.time()
-            execution_times.append(t1 - t0)
+    def mutate(
+        self, input: np.ndarray, rng: np.random.Generator, **kwargs
+    ) -> np.ndarray:
+        return self.executor.mutate(input)
 
-            fs = final_obs_list[0] #TODO
-            behavior = np.array([measures[k] for k in self.features])
+    def load_policy(self, **kwargs):
+        return None
 
-            inputs.append(input)
-            behaviors.append(behavior)
-            final_states.append(fs)
-            acc_rewards.append(episode_reward)
-            failure_probs.append(failure_prob)
-        behaviors = np.array(behaviors)
+    def log_execution(
+        self,
+        input: np.ndarray,
+        mean_acc_reward: float,
+        failure_prob: float,
+        final_obs_list: List[np.ndarray],
+        expert_behaviors_list: List[np.ndarray],
+        behavior: np.ndarray,
+        exec_time: float,
+    ):
+        np.savetxt(self.inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
+        np.savetxt(self.behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
+        for buffer, fs in zip(self.final_states_buffers, final_obs_list):
+            np.savetxt(buffer, fs.reshape(1, -1), delimiter=",")
+        for eb_buffer, eb in zip(self.expert_behaviors_buffers, expert_behaviors_list):
+            np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+        print(
+            f"episode_reward: {mean_acc_reward}, failure_prob: {failure_prob}, execution_time: {exec_time}",
+            file=self.logs_buffer,
+        )
 
-        df = pd.read_csv("grid/bw/measures.csv")
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
+    def execute_policy(
+        self, input: np.ndarray, policy: Any
+    ) -> Tuple[float, bool, np.ndarray, float]:
+        t0 = time.time()
+        mean_acc_reward, failure_prob, final_obs_list, behaviors_list, measures = (
+            self.executor.execute_stochastic_policy(input, policy, self.env_seeds)
+        )
 
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
+        exec_time = time.time() - t0
+        behavior = np.array(list(measures.values()))
+        self.log_execution(
+            input,
+            mean_acc_reward,
+            failure_prob,
+            final_obs_list,
+            behaviors_list,
+            behavior,
+            exec_time,
+        )
 
-        for i in range(init_budget):
-            behavior = behaviors[i]
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
-            mutated_input_index = self.update_cell(cell, inputs[i], acc_rewards[i], failure_probs[i], behavior)
-            print(f'episode_reward: {acc_rewards[i]}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}', file=logs_buffer)
-            np.savetxt(inputs_buffer, inputs[i].reshape(1, -1), delimiter=',')
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=',')
-            np.savetxt(final_states_buffer, final_states[i].reshape(1, -1), delimiter=',')
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt='%1.0f', delimiter=',')
+        return (
+            mean_acc_reward,
+            bool(failure_prob),
+            [],
+            exec_time,
+        )
 
-        start_time = time.time()
-        current_time = time.time()
-        nb_executions = 0
-        pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
-
-        while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
-            cell_index = self.select_cell()
-            self.last_cell_selected = cell_index
-            input = self.select_input(cell_index)
-
-            mutated_input = self.mutate(input)
-            t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = execute_stochastic_policy(mutated_input, model, env_seeds, 300)
-            t1 = time.time()
-            execution_times.append(t1 - t0)
-
-            fs = final_obs_list[0] #TODO
-            behavior = np.array([measures[k] for k in self.features])
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
-
-            mutated_input_index = self.update_cell(cell, mutated_input, episode_reward, failure_prob, behavior)
-            print(f'episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}', file=logs_buffer)
-            np.savetxt(inputs_buffer, mutated_input.reshape(1, -1), fmt='%1.0f', delimiter=',')
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=',')
-            np.savetxt(final_states_buffer, fs.reshape(1, -1), delimiter=',')
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt='%1.0f', delimiter=',')
-            current_time = time.time()
-            nb_executions += 1
-            pbar.update(1)
-
-        testing_end_time = time.time()
-        self.config['testing_start_time'] = testing_start_time
-        self.config['testing_end_time'] = testing_end_time
-        self.config['testing_time'] = testing_end_time - testing_start_time
-        self.config['total_execution_time'] = sum(execution_times)
-
-        pbar.close()
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        final_states_buffer.close()
-        self.save_state(filepath)
+    def clean(self):
+        """Closes the file buffers and saves the configuration."""
+        self.behaviors_buffer.close()
+        self.inputs_buffer.close()
+        self.logs_buffer.close()
+        for buffer in self.final_states_buffers:
+            buffer.close()
+        with open(f"{self.fp}_config.json", "w") as f:
+            f.write(json.dumps(self.config))
 
 
-    def random_testing(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    test_budget: int,
-                    results_fp: str,
-                    disable_pbar: bool = False):
-        '''Random testing loop baseline.'''
-        self.test_budget = test_budget
-        self.config['test_budget'] = self.test_budget
-        self.config['env_seeds'] = env_seeds
-
-
-        if os.path.isdir(results_fp):
-            filepath = f'{results_fp}{self.creation_time}' if results_fp.endswith('/') else f'{results_fp}/{self.creation_time}'
-        else:
-            filepath = results_fp
-
-        behaviors_buffer = open(f'{filepath}_behaviors.txt', 'w', buffering=1)
-        final_states_buffer = open(f'{filepath}_final_states.txt', 'w', buffering=1)
-        inputs_buffer = open(f'{filepath}_inputs.txt', 'w', buffering=1)
-        cells_buffer = open(f'{filepath}_cells.txt', 'w', buffering=1)
-        logs_buffer = open(f'{filepath}_logs.txt', 'w', buffering=1)
-
-
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget if test_budget > 12 else 10000
-        print(f'Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.')
-
-
-        df = pd.read_csv("grid/bw/measures.csv")
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
-
-        execution_times = []
-
-        start_time = time.time()
-        current_time = time.time()
-        nb_executions = 0
-        pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
-
-        while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
-            input: np.ndarray = self.rng.integers(low=1, high=4, size=15)
-            t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, measures = execute_stochastic_policy(input, model, env_seeds, 300)
-            t1 = time.time()
-            execution_times.append(t1 - t0)
-
-            fs = final_obs_list[0] #TODO
-            behavior = np.array([measures[k] for k in self.features])
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
-
-
-            input_index = self.update_cell(cell, input, episode_reward, failure_prob, behavior)
-            print(f'episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}', file=logs_buffer)
-            np.savetxt(inputs_buffer, input.reshape(1, -1), fmt='%1.0f', delimiter=',')
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=',')
-            np.savetxt(final_states_buffer, fs.reshape(1, -1), delimiter=',')
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt='%1.0f', delimiter=',')
-            current_time = time.time()
-            nb_executions += 1
-            pbar.update(1)
-
-        testing_end_time = time.time()
-        self.config['testing_start_time'] = start_time
-        self.config['testing_end_time'] = testing_end_time
-        self.config['testing_time'] = testing_end_time - start_time
-        self.config['total_execution_time'] = sum(execution_times)
-
-        pbar.close()
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        final_states_buffer.close()
-        self.save_state(filepath)
-
-
-    def novelty_search(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    pop_size: int,
-                    nb_iterations: int,
-                    k: int,
-                    nov_threshold: float,
-                    results_fp: str,
-                    disable_pbar: bool = False):
-        '''Does not use cached data anymore.'''
-
-        self.config['pop_size'] = pop_size
-        self.config['nb_iterations'] = nb_iterations
-        self.config['test_budget'] = pop_size * nb_iterations
-        self.config['env_seeds'] = env_seeds
-        self.config['nov_threshold'] = nov_threshold
-        self.config['k'] = k
-
-        if os.path.isdir(results_fp):
-            filepath = f'{results_fp}{self.creation_time}' if results_fp.endswith('/') else f'{results_fp}/{self.creation_time}'
-        else:
-            filepath = results_fp
-
-        # to collect the data during the search, i.e., every model execution
-        behaviors_buffer = open(f'{filepath}_behaviors.txt', 'w', buffering=1)
-        final_states_buffer = open(f'{filepath}_final_states.txt', 'w', buffering=1)
-        inputs_buffer = open(f'{filepath}_inputs.txt', 'w', buffering=1)
-        cells_buffer = open(f'{filepath}_cells.txt', 'w', buffering=1)
-        logs_buffer = open(f'{filepath}_logs.txt', 'w', buffering=1)
-
-        df = pd.read_csv("grid/bw/measures.csv")
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
-
-        # helpers 1: recording the executions during each iteration
-        def record(input: np.ndarray, reward: float, failure_prob: float, behavior: np.ndarray, final_state: np.ndarray) -> None:
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
-            updated_cell_index = self.update_cell(cell, input, reward, failure_prob, behavior)
-            # parent's cell is not logged
-            print(f'episode_reward: {reward}, failure_prob: {failure_prob}, cell_updated_index: {updated_cell_index}, nb_cells: {len(self.cells)}', file=logs_buffer)
-            np.savetxt(inputs_buffer, input.reshape(1, -1), delimiter=',')
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=',')
-            np.savetxt(final_states_buffer, final_state.reshape(1, -1), delimiter=',')
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt='%1.0f', delimiter=',')
-        # helpers 2: evaluates a batch of individuals
-        def evaluate(individuals: np.ndarray) -> np.ndarray:
-            behaviors = []
-            for ind in individuals:
-                r, fp, final_obs_list, measures =  execute_stochastic_policy(ind, model, env_seeds, 300)
-                fs = final_obs_list[0] #TODO
-                b = np.array([measures[k] for k in self.features])
-                record(ind, r, fp, b, fs)
-                behaviors.append(b)
-            return np.array(behaviors)
-        # helper 3: mutates a batch of individuals
-        def mutate(inputs: np.ndarray):
-            mutants = [self.mutate(input) for input in inputs]
-            return np.array(mutants)
-
-        # ns logs
-        ns_logs_buffer = open(f'{filepath}_ns_logs.txt', 'w', buffering=1)
-        nov_scores_buffer = open(f'{filepath}_nov_scores.txt', 'w', buffering=1)
-        # initial population and novelty archive
-        from novelty_search import NoveltyArchive
-        pop = self.rng.integers(low=1, high=4, size=(pop_size, 15))
-        pop_behaviors = evaluate(pop)
-        nov_archive = NoveltyArchive(pop_behaviors, k, nov_threshold)
-        pop_nov_scores = nov_archive.score(pop_behaviors)
-        [np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=',') for s in pop_nov_scores]
-        # novelty search loop
-        print(f'iteration: 0, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}', file=ns_logs_buffer)
-        for i in tqdm.tqdm(range(1, nb_iterations), disable=disable_pbar):
-            # 1. generates offspring
-            offspring = mutate(pop)
-            # 1. evaluates the offspring
-            offspring_behaviors = evaluate(offspring)
-            # 1. novelty scores of the offspring w.r.t the archive and the population
-            offspring_nov_scores = nov_archive.score(offspring_behaviors, pop_behaviors)
-
-            # 2. selects the most novel individuals to form the new population
-            joined_pop = np.vstack([pop, offspring])
-            joined_scores = np.hstack([pop_nov_scores, offspring_nov_scores])
-            median_score = np.median(joined_scores)
-
-            # 3. updates the archive
-            _updated, _offspring_indices = nov_archive.update3(offspring_behaviors)
-
-            # 4. updates the population and their data
-            mask = (joined_scores >= median_score)
-
-            pop = joined_pop[mask].copy()
-            pop_behaviors = np.vstack([pop_behaviors, offspring_behaviors])[mask]
-            pop_nov_scores = nov_archive.score(pop_behaviors)
-            if len(pop) > pop_size:
-                pop = pop[:pop_size]
-                pop_behaviors = pop_behaviors[:pop_size]
-                pop_nov_scores = pop_nov_scores[:pop_size]
-
-            # assert len(pop) == pop_size, (len(pop), pop.shape)
-            # assert len(pop_behaviors) == pop_size, (len(pop), pop.shape)
-            # assert len(pop_nov_scores) == pop_size, (len(pop), pop.shape)
-            [np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=',') for s in pop_nov_scores]
-            print(f'iteration: {i}, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}', file=ns_logs_buffer)
-
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        final_states_buffer.close()
-        self.save_state(filepath)
-
-#TODO: this version can actually only keep the best performing input per cell (since all execution data is recorded during testing)
-class MAPElitesFramework(Framework):
-    def __init__(self, rand_seed: int, cell_granularity: int, features: List[str], descriptors: Tuple[str, str], **kwargs) -> None:
-        if kwargs.get("name") is None:
-            kwargs["name"] = "MAP-Elites"
-        super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
-
-
-    # def select_input(self, index: int):
-    #     scores = list(map(lambda x: x[1], self.cells_data[index]))
-    #     # the best performing input is one whose score is the minimum, since it corresponds to the accumulated reward.
-    #     best_performer_index = int(np.argmin(scores))
-    #     return self.cells_data[index][best_performer_index][0]
-
-    def select_input(self, index: int):
-        """Selection based on the failure probability if they are not all equal to 0; worst accumulated reward otherwise."""
-        failure_probs = list(map(lambda x: x[2], self.cells_data[index]))
-        if max(failure_probs) > 0.:
-            # the best performing input is one whose score is the maximum, since it corresponds to the failure probability.
-            best_performer_index = int(np.argmax(failure_probs))
-        else:
-            print("No failure triggering input found in cell index {}.".format(index))
-            scores = list(map(lambda x: x[1], self.cells_data[index]))
-            best_performer_index = int(np.argmin(scores))
-        return self.cells_data[index][best_performer_index][0]
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     from pathlib import Path
+
     torch.set_num_threads(1)
     main_seed = 2021
-    model = load_model()
+    model = load_bipedal_walker_model()
 
     # expert and generic measures
-    features = FEATURES + MEASURES
+    features = MEASURES
 
     # experimental parameters
-    test_budget = 20#00
-    init_budget = 10#00
+    test_budget = 200
+    init_budget = 50
     cell_granularity = 50
 
     # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 10, 5
+    population_size, nb_iterations = 50, 4
     k = 3
     novelty_threshold = 0.005
 
     descriptors = ["action_entropy", "length_spread"]
 
-    results_fp = Path("results/bw")
+    results_fp = Path("results_new/bw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)
     (results_fp / "rt").mkdir(parents=True, exist_ok=True)
+    (results_fp / "mdpfuzz").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
 
-        f = Framework(
+        f = BWFramework(
             seed,
             cell_granularity,
             features=features,
             descriptors=descriptors,
-            name="Random Testing"
         )
-        f.random_testing(
-            model, ENV_SEEDS,
-            test_budget, str(results_fp / "rt")
-        )
+        f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
 
-        f = MAPElitesFramework(
+        f = BWFramework(
             seed,
             cell_granularity,
             features=features,
             descriptors=descriptors,
-            name="MAP-Elites"
         )
         f.test_policy(
-            model, ENV_SEEDS, test_budget,
-            init_budget, str(results_fp / "qd")
+            model, ENV_SEEDS, test_budget, init_budget, str(results_fp / "qd")
         )
 
-        f = Framework(
+        f = BWFramework(
             seed,
             cell_granularity,
             features=features,
             descriptors=descriptors,
-            name=f"Novelty Search"
         )
         f.novelty_search(
             model,
@@ -600,5 +283,20 @@ if __name__ == '__main__':
             nb_iterations,
             k,
             novelty_threshold,
-            str(results_fp / "ns")
+            str(results_fp / "ns"),
         )
+
+        executor = BWExecutor(seed, ENV_SEEDS, log_path=str(results_fp / "mdpfuzz"))
+        fuzzer_logs_path = executor.fp + "_fuzzer"
+        fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
+        fuzzer.fuzzing_no_coverage(
+            n=init_budget,
+            test_budget=test_budget,  # 2*n will be removed since we assume that test_budget is the TOTAL budget
+            policy=model,
+            saving_path=fuzzer_logs_path,
+            local_sensitivity=True,  # don"t re-run for computing the sensitivity
+            exp_name="Bipedal Walker",
+            light_pool=True,  # don"t log the inputs
+            save_logs_only=True,  # don"t save evaluated inputs
+        )
+        executor.clean()

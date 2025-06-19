@@ -7,11 +7,21 @@ import pandas as pd
 
 from typing import Tuple, Union, Dict, List
 
+from sb3_contrib import TQC
+from stable_baselines3.ppo.ppo import PPO
+
 
 EXPERIMENT_SEEDS = [2021, 42, 2023, 20, 0, 10, 4, 2006, 512, 1453]
 POP_SIZES = [100, 250, 500]
 ITERATIONS = [50, 20, 10]
 ENV_SEEDS = [0, 1, 2]
+MEASURES = [
+    "length_mean",
+    "length_std",
+    "length_spread",
+    "action_std",
+    "action_entropy",
+]
 
 ###############################################################################################
 ################################## CELL AND GRID HELPERS ######################################
@@ -87,6 +97,18 @@ def get_histogram(behaviors: np.ndarray, xedges: np.ndarray, yedges: np.ndarray)
     # the issue is that some behaviors found during the search might be outside of the edges.
     # this is handled by the archive, but not here.
     return np.histogram2d(behaviors[:, 0], behaviors[:, 1], bins=(xedges, yedges))[0]
+
+
+def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.ndarray:
+    if use_case not in ["Bipedal Walker", "Lunar Lander"]:
+        raise ValueError()
+
+    if use_case == "Bipedal Walker":
+        edges = np.load(f'grid/bw/0_300_edges.npy')
+        return edges[descriptors]
+
+    else:
+        np.load(f'grid/ll/0_1000_xedges.npy'), np.load(f'grid/ll/0_1000_yedges.npy')
 
 
 #################################################################################################
@@ -195,3 +217,21 @@ def read_results_from_folder(results_folder: str, **kwargs) -> List[Dict]:
         except FileNotFoundError:
             pass
     return dicts
+
+
+#################################################################################################
+####################################### MODELS LOADING ##########################################
+
+def load_lunar_lander_model():
+    '''Loads the model under test.'''
+    custom_objects = {
+        'learning_rate': 0.0,
+        'lr_schedule': lambda _: 0.0,
+        'clip_range': lambda _: 0.0,
+    }
+    return PPO.load('rl-trained-agents/ppo/LunarLander-v2_1/LunarLander-v2.zip', custom_objects=custom_objects, device="cpu")
+
+def load_bipedal_walker_model():
+    return TQC.load(
+        'rl-trained-agents/tqc/BipedalWalkerHardcore-v3_1/BipedalWalkerHardcore-v3.zip',
+        custom_objects={}, kwargs={'seed': 0, 'buffer_size': 1}, device="cpu")
