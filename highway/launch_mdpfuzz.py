@@ -11,7 +11,7 @@ from mdpfuzz.executor import Executor
 from mdpfuzz.logger import FuzzerLogger
 from mdpfuzz.mdpfuzz import Fuzzer
 from executor import HighwayTestManager
-from hw_framework import ENV_SEEDS
+from hw_framework import ENV_SEEDS, FEATURES
 
 
 class MDPFuzzExecutor(Executor):
@@ -40,10 +40,13 @@ class MDPFuzzExecutor(Executor):
             for seed in self.env_seeds
         ]
 
+        self.features = FEATURES
+
         self.config = {
             "use_case": "Highway",
             "name": "MDPFuzz",
-            "env_seeds": self.env_seeds
+            "env_seeds": self.env_seeds,
+            "features": self.features
         }
 
 
@@ -152,6 +155,7 @@ if __name__ == "__main__":
         log_path=str(results_fp)
     )
     fuzzer_logs_path = executor.fp + "_fuzzer"
+    print("Log pathes:", results_fp, fuzzer_logs_path)
 
     model = executor.load_policy(
         model_path="saved_models/dqnagent/checkpoint-35000.tar"
