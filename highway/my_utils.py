@@ -42,10 +42,11 @@ def get_bin_edges(df: pd.DataFrame, measures: List[str], num_bins: int = 50) -> 
         ]
     )
 
-def compute_cell_filling(behaviors: np.ndarray, descriptor_indices_list: List[List[int]], edges: List[Tuple[np.ndarray, np.ndarray]]):
+def compute_cell_filling(behaviors: np.ndarray, descriptor_indices_list: List[Tuple[int, int]], edges: List[Tuple[np.ndarray, np.ndarray]]):
     """Compute the (grid) cells of 2 behavior points in `behaviors` given pairs of the behavior indices."""
 
     indices_arr = np.array(descriptor_indices_list)
+    assert len(indices_arr) == len(edges)
 
 
     return [

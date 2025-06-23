@@ -1,5 +1,5 @@
 .vscode
 *.egg-info/
 __pycache__/
-experiments/results/*/
-experiments/data/*/
+*/data/*/
+*/results*/*/
