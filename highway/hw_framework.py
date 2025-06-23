@@ -630,18 +630,18 @@ if __name__ == "__main__":
     model = HighwayTestManager.load_policy(dqnagent_path)
 
     # experimental parameters
-    test_budget = 50#00
-    init_budget = 10#00
+    test_budget = 1000
+    init_budget = 100
     cell_granularity = 50
 
     # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 10, 5
+    population_size, nb_iterations = 100, 10
     k = 3
     novelty_threshold = 0.005
 
     descriptors = ["action_entropy", "length_spread"]
 
-    results_fp = Path("results/hw")
+    results_fp = Path("results_expert/hw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)

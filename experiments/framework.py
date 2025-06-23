@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import time
@@ -68,8 +69,17 @@ class Framework(ABC):
             "descriptor_indices": self.descriptor_indices,
         }
 
+        # additional attributes
+        self.input_fmt = kwargs.get("input_fmt", "%.18e")  # type: str
+
         # attribute set when a testing method is used
         self.name = None
+        self.behaviors_buffer = None  # type: io.TextIOWrapper
+        self.inputs_buffer = None  # type: io.TextIOWrapper
+        self.cells_buffer = None  # type: io.TextIOWrapper
+        self.logs_buffer = None  # type: io.TextIOWrapper
+        self.final_states_buffers = None  # type: List[io.TextIOWrapper]
+        self.expert_behaviors_buffers = None  # type: List[io.TextIOWrapper]
 
         # attributes to implement
         self.action_range = None  # type: Tuple[int, int]
@@ -258,6 +268,71 @@ class Framework(ABC):
     def generate_inputs(self, n: int, **kwargs) -> np.ndarray:
         raise NotImplementedError()
 
+    def prepare_logging(self, filepath: str, env_seeds: List[int]):
+        self.behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
+        self.inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
+        self.cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
+        self.logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
+        # saves the N final states and expert behaviors separately
+        self.final_states_buffers = [
+            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
+        self.expert_behaviors_buffers = [
+            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
+            for seed in env_seeds
+        ]
+
+    def conclude_logging(self):
+        buffers = [
+            self.behaviors_buffer,
+            self.inputs_buffer,
+            self.cells_buffer,
+            self.logs_buffer
+        ]
+        if self.final_states_buffers is not None:
+          buffers += self.final_states_buffers
+
+        if self.expert_behaviors_buffers is not None:
+          buffers += self.expert_behaviors_buffers
+
+        for buffer in buffers:
+            if buffer is not None:
+                buffer.close()
+
+    def log_execution(
+            self,
+            acc_reward: float,
+            failure_prob: float,
+            cell_selected_index: int,
+            mutated_input_index: int,
+            exec_time: float = None):
+        log = f"episode_reward: {acc_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_selected_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}"
+        if exec_time is not None:
+            log += f", execution_time: {exec_time}"
+        print(
+            log,
+            file=self.logs_buffer,
+        )
+
+    def log_data(self,
+            input: np.ndarray,
+            behavior: np.ndarray,
+            cell: np.ndarray,
+            final_states: List[np.ndarray],
+            expert_behaviors: List[np.ndarray]):
+
+        np.savetxt(self.inputs_buffer, input.reshape(1, -1), fmt=self.input_fmt, delimiter=",")
+        np.savetxt(self.behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
+        np.savetxt(
+            self.cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+        )
+        for fs_buffer, fs in zip(self.final_states_buffers, final_states):
+            np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
+        for eb_buffer, eb in zip(self.expert_behaviors_buffers, expert_behaviors):
+            np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+
+
     @abstractmethod
     def execute_policy(
         self,
@@ -342,19 +417,7 @@ class Framework(ABC):
         else:
             filepath = results_fp
 
-        behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
-        cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
-        logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
-        # saves the N final states and expert behaviors separately
-        final_states_buffers = [
-            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
-        expert_behaviors_buffers = [
-            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
+        self.prepare_logging(filepath, env_seeds)
 
         time_budget = min(12, test_budget) * 3600
         executions_budget = test_budget - init_budget if test_budget > 12 else 10000
@@ -379,7 +442,6 @@ class Framework(ABC):
                 self.execute_stochastic_policy(input, model, env_seeds)
             )
             t1 = time.time()
-            execution_times.append(t1 - t0)
 
             behavior = np.array([measures[k] for k in self.features])
 
@@ -389,6 +451,7 @@ class Framework(ABC):
             expert_behaviors.append(behaviors_list)
             acc_rewards.append(episode_reward)
             failure_probs.append(failure_prob)
+            execution_times.append(t1 - t0)
 
         behaviors = np.array(behaviors)
 
@@ -408,21 +471,14 @@ class Framework(ABC):
             mutated_input_index = self.update_cell(
                 cell, inputs[i], acc_rewards[i], failure_probs[i], behavior
             )
-            print(
-                f"episode_reward: {acc_rewards[i]}, failure_prob: {failure_probs[i]}, cell_selected_index: -1, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
-                file=logs_buffer,
+            self.log_execution(
+                acc_rewards[i],
+                failure_probs[i],
+                -1,
+                mutated_input_index,
+                execution_times[i]
             )
-            np.savetxt(
-                inputs_buffer, inputs[i].reshape(1, -1), fmt="%1.0f", delimiter=","
-            )
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(
-                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
-            )
-            for fs_buffer, fs in zip(final_states_buffers, final_states[i]):
-                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
-            for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors[i]):
-                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
+            self.log_data(inputs[i], behaviors[i], cell, final_states[i], expert_behaviors[i])
 
         start_time = time.time()
         current_time = time.time()
@@ -453,22 +509,20 @@ class Framework(ABC):
             mutated_input_index = self.update_cell(
                 cell, mutated_input, episode_reward, failure_prob, behavior
             )
-            print(
-                f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
-                file=logs_buffer,
+            self.log_execution(
+                episode_reward,
+                failure_prob,
+                cell_index,
+                mutated_input_index,
+                t1 - t0
             )
-            np.savetxt(
-                inputs_buffer, mutated_input.reshape(1, -1), fmt="%1.0f", delimiter=","
+            self.log_data(
+                mutated_input,
+                behavior,
+                cell,
+                final_obs_list,
+                behaviors_list
             )
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(
-                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
-            )
-
-            for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
-                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
-            for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
-                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
             current_time = time.time()
             nb_executions += 1
@@ -481,12 +535,7 @@ class Framework(ABC):
         self.config["total_execution_time"] = sum(execution_times)
 
         pbar.close()
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        for buffer in final_states_buffers + expert_behaviors_buffers:
-            buffer.close()
+        self.conclude_logging()
         self.save_state(filepath)
 
     def random_testing(
@@ -512,19 +561,7 @@ class Framework(ABC):
         else:
             filepath = results_fp
 
-        behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
-        cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
-        logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
-        # saves the N final states and expert behaviors separately
-        final_states_buffers = [
-            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
-        expert_behaviors_buffers = [
-            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
+        self.prepare_logging(filepath, env_seeds)
 
         time_budget = min(12, test_budget) * 3600
         executions_budget = test_budget if test_budget > 12 else 10000
@@ -565,20 +602,20 @@ class Framework(ABC):
             input_index = self.update_cell(
                 cell, input, episode_reward, failure_prob, behavior
             )
-            print(
-                f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
-                file=logs_buffer,
+            self.log_execution(
+                episode_reward,
+                failure_prob,
+                -1,
+                input_index,
+                t1 - t0
             )
-            np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(
-                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            self.log_data(
+                input,
+                behavior,
+                cell,
+                final_obs_list,
+                behaviors_list
             )
-
-            for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
-                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
-            for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
-                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
             current_time = time.time()
             nb_executions += 1
@@ -591,12 +628,7 @@ class Framework(ABC):
         self.config["total_execution_time"] = sum(execution_times)
 
         pbar.close()
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        for buffer in final_states_buffers + expert_behaviors_buffers:
-            buffer.close()
+        self.conclude_logging()
         self.save_state(filepath)
 
     def novelty_search(
@@ -628,20 +660,7 @@ class Framework(ABC):
         else:
             filepath = results_fp
 
-        # to collect the data during the search, i.e., every model execution
-        behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
-        inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
-        cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
-        logs_buffer = open(f"{filepath}_logs.txt", "w", buffering=1)
-        # saves the N final states and expert behaviors separately
-        final_states_buffers = [
-            open(f"{filepath}_final_states_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
-        expert_behaviors_buffers = [
-            open(f"{filepath}_expert_behaviors_{seed}.txt", "w", buffering=1)
-            for seed in env_seeds
-        ]
+        self.prepare_logging(filepath, env_seeds)
 
         df = pd.read_csv(self.path_to_measures_extrema)
         self.xedges, self.yedges = get_bin_edges(
@@ -666,20 +685,19 @@ class Framework(ABC):
             updated_cell_index = self.update_cell(
                 cell, input, reward, failure_prob, behavior
             )
-            # parent"s cell is not logged
-            print(
-                f"episode_reward: {reward}, failure_prob: {failure_prob}, cell_updated_index: {updated_cell_index}, nb_cells: {len(self.cells)}",
-                file=logs_buffer,
+            self.log_execution(
+                reward,
+                failure_prob,
+                -1, # parent's cell is not logged
+                updated_cell_index
             )
-            np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
-            np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(
-                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            self.log_data(
+                input,
+                behavior,
+                cell,
+                final_states_list,
+                expert_behaviors_list
             )
-            for fs_buffer, fs in zip(final_states_buffers, final_states_list):
-                np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
-            for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors_list):
-                np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
         # helpers 2: evaluates a batch of individuals
         def evaluate(individuals: np.ndarray) -> np.ndarray:
@@ -756,10 +774,5 @@ class Framework(ABC):
                 file=ns_logs_buffer,
             )
 
-        behaviors_buffer.close()
-        inputs_buffer.close()
-        cells_buffer.close()
-        logs_buffer.close()
-        for buffer in final_states_buffers + expert_behaviors_buffers:
-            buffer.close()
+        self.conclude_logging()
         self.save_state(filepath)

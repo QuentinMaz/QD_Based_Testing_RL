@@ -205,8 +205,8 @@ def process_txt_log(filename: str):
                 print(f'ERROR_TXT_LOG_PROCESSING for "{line}".', file=sys.stderr)
 
     df = pd.DataFrame.from_records(dicts)
-    if "oracle" in df.columns:
-        df["oracle"] = df["oracle"].astype(bool)
+    if "failure_prob" in df.columns:
+        df["oracle"] = df["failure_prob"].astype(bool)
     process_time = time.time() - t0
     return df, process_time
 

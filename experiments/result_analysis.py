@@ -592,6 +592,211 @@ def compute_mean_knn(results: List[Dict], knn: int = 3, computation_steps: int =
     return use_cases, results_dicts, fresults_dicts, x_starts_dicts, colors_dict
 
 
+def compute_mean_knn2(results: List[Dict], knn: int = 3, computation_steps: int = 50):
+    """Updated version, for which there is no redundant data anymore and the statistical analysis is done over all the lists of final states per (method, use case)."""
+    use_cases: List[str] = np.unique(
+        [d["config"]["use_case"] for d in results]
+    ).tolist()
+    methods_names: List[str] = np.unique(
+        [d["config"]["name"] for d in results]
+    ).tolist()
+    seeds: List[int] = np.unique([d["config"]["rand_seed"] for d in results]).tolist()
+
+    # print(use_cases)
+    # print(methods_names)
+    # print(seeds)
+
+    # LinearSegmentedColormap
+    cmap = plt.cm.jet
+    rgba_colors = [cmap(i) for i in np.linspace(0, 1, len(methods_names))]
+    # colors of each method name
+    colors_dict = {n: c for n, c in zip(methods_names, rgba_colors)}
+
+    # TODO: MAP-Elite's elites filtering later
+    # add_elite_results = kwargs.get('add_elite_results', False)
+
+    assert computation_steps > 0
+
+    # re-aranges the results per use_case
+    use_cases_dict: Dict[str, Dict[str, List]] = {}
+    for case in use_cases:
+        use_cases_dict[case] = {}
+        for name in methods_names:
+            # case's results
+            sub_results = [
+                d
+                for d in results
+                if (d["config"]["use_case"].startswith(case))
+                and (d["config"]["name"] == name)
+            ]
+            use_cases_dict[case].update({name: sub_results})
+        # logs
+        # print(f"For {case}:")
+        # for k, v in use_cases_dict[case].items():
+        #     print(k, len(v), np.unique([d["config"]["rand_seed"] for d in v]).tolist())
+        # print("----------------------------------------------")
+
+    def dist(arr: np.ndarray, knn: int) -> np.ndarray:
+        # to handle integer data of Taxi
+        if len(arr.shape) == 1:
+            arr = arr.reshape(-1, 1)
+        data = np.unique(arr, axis=0)
+        neighbors = NearestNeighbors(n_neighbors=knn).fit(data)
+        distances, _ = neighbors.kneighbors()
+        return np.mean(distances, axis=1)
+
+    def statistical_dists(arr_list: List[np.ndarray], knn: int, steps: Iterable = None):
+        """Compute the knn distances for step in ``steps``.
+
+        Parameters
+        ----------
+        arr_list : List[np.ndarray]
+            List of final states (resulting from a same method).
+        steps : Iterable, optional
+            The step values. If not provided, the steps are set to every ``computation_steps``.
+
+        Returns
+        -------
+        medians : List[np.ndarray]
+            The median values for each data in `arr_list`, as numpy arrays of `steps` size.
+        q1s : List[np.ndarray]
+            The first quantile values for each data in `arr_list`, as numpy arrays of `steps` size.
+        q3s : List[np.ndarray]
+            The third quantile values for each data in `arr_list`, as numpy arrays of `steps` size.
+        steps : Iterable
+            The input `steps`, or the range object used if `steps` is not provided.
+        """
+        if steps is None:
+            max_length = np.max([len(arr) for arr in arr_list])
+            steps = range(computation_steps - 1, max_length, computation_steps)
+
+        medians, q1s, q3s = [], [], []
+        for arr in arr_list:
+            dists_list = [dist(arr[:step], knn) for step in steps]
+            medians.append(np.array([np.median(d) for d in dists_list]))
+            q1s.append(np.array([np.quantile(d, 0.25) for d in dists_list]))
+            q3s.append(np.array([np.quantile(d, 0.75) for d in dists_list]))
+        return medians, q1s, q3s, steps
+
+    def statistical_dists_splits(
+        data_list: List[List[np.ndarray]], knn: int = 5
+    ) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """Same as `statistical_dists` but the final states numpy arrays are already split into a list of numpy arrays."""
+        medians, q1s, q3s = [], [], []
+        for data in data_list:
+            mean_distances_list = [knn_dists(d, knn) for d in data]
+            # uses nan version (knn_dists can return np.nan)
+            medians.append(
+                np.array(
+                    [
+                        np.median(d) if isinstance(d, np.ndarray) else np.nan
+                        for d in mean_distances_list
+                    ]
+                )
+            )
+            q1s.append(
+                np.array(
+                    [
+                        np.quantile(d, 0.25) if isinstance(d, np.ndarray) else np.nan
+                        for d in mean_distances_list
+                    ]
+                )
+            )
+            q3s.append(
+                np.array(
+                    [
+                        np.quantile(d, 0.75) if isinstance(d, np.ndarray) else np.nan
+                        for d in mean_distances_list
+                    ]
+                )
+            )
+        return medians, q1s, q3s
+
+    # dict of (the means of) the medians and quantiles for all methodologies per use-case
+    results_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
+    # similar data but with distinct fault-triggering final states
+    fresults_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
+    # the first indices to plot the results above (since there is no guarantee to have such final state data in the first splits)
+    x_starts_dicts = []
+    for case in use_cases:
+        # results of all methodologies
+        method_result_dict = {}
+        method_fresult_dict = {}
+        x_starts_dict = {}
+        for method_name, sub_results in use_cases_dict[case].items():
+            if len(sub_results) == 0:
+                print(
+                    f"No result found for use-case {case} and methodology {method_name}"
+                )
+                continue
+
+            fs_list = []
+            oracles_list = []
+            for d in sub_results:
+                fs_list.extend(d["final_states"])
+                # copies the oracle flags for each list
+                for _ in range(len(d["final_states"])):
+                    oracles_list.append(d["logs"]["oracle"].to_numpy().copy())
+
+            assert len(fs_list) == len(oracles_list)
+            # print(f"For ({case}, {method_name}), found a total of {len(fs_list)} final states lists.")
+
+            # final states
+            medians, q1s, q3s, x = statistical_dists(fs_list, knn)
+            medians = np.vstack(medians)
+            q1s = np.vstack(q1s)
+            q3s = np.vstack(q3s)
+            # reduces the distribution of the data (medians and quantiles) their mean
+            mmedians = np.mean(medians, axis=0)
+            mq1s = np.mean(q1s, axis=0)
+            mq3s = np.mean(q3s, axis=0)
+            method_result_dict[method_name] = (mmedians, mq1s, mq3s)
+
+            # distinct fault-triggering data filtering
+            max_length = np.max([len(fs) for fs in fs_list])
+            x = range(computation_steps - 1, max_length, computation_steps)
+            x_starts = []
+            final_states_splits = []
+            for fs, oracle_mask in zip(fs_list, oracles_list):
+                mask = filter_data([oracle_mask], [fs])[0][2]
+                if sum(mask) <= knn:
+                    warnings.warn(
+                        f"Not enough (unique) faults for ({case}, {method_name}). Continuing...",
+                        RuntimeWarning,
+                    )
+                    continue
+                indices = np.ravel(np.argwhere(mask))
+                # the start index is thus the index from which there are (nb neighbors + 1) faulty final states before
+                start_index = indices[knn]
+                # print(f'{case} {method_name}: enough faults from index {start_index}.')
+                x_starts.append(start_index)
+                split = [
+                    (
+                        fs[: (step + 1)][mask[: (step + 1)]]
+                        if step > start_index
+                        else np.nan
+                    )
+                    for step in x
+                ]
+                final_states_splits.append(split)
+            if x_starts == []:
+                raise ValueError(
+                    f"No unique fault was found in any final states lists for ({case}, {method_name})."
+                )
+            x_starts_dict[method_name] = np.min(x_starts)
+            medians, q1s, q3s = statistical_dists_splits(final_states_splits, knn)
+            # with warnings.catch_warnings():
+            mmedians = np.nanmean(medians, axis=0)
+            mq1s = np.nanmean(q1s, axis=0)
+            mq3s = np.nanmean(q3s, axis=0)
+            method_fresult_dict[method_name] = (mmedians, mq1s, mq3s)
+
+        results_dicts.append(method_result_dict)
+        fresults_dicts.append(method_fresult_dict)
+        x_starts_dicts.append(x_starts_dict)
+    return use_cases, results_dicts, fresults_dicts, x_starts_dicts, colors_dict
+
+
 def compute_relative_performance(
     results: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]],
     name_ref: str = "Random Testing",

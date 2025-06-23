@@ -143,7 +143,7 @@ class LLExecutor(Executor):
         behavior: np.ndarray,
         exec_time: float,
     ):
-        np.savetxt(self.inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
+        np.savetxt(self.inputs_buffer, input.reshape(1, -1), delimiter=",")
         np.savetxt(self.behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
         for buffer, fs in zip(self.final_states_buffers, final_obs_list):
             np.savetxt(buffer, fs.reshape(1, -1), delimiter=",")
@@ -205,18 +205,18 @@ if __name__ == "__main__":
     features = MEASURES
 
     # experimental parameters
-    test_budget = 200
-    init_budget = 50
+    test_budget = 100
+    init_budget = 10
     cell_granularity = 50
 
     # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 50, 4
+    population_size, nb_iterations = 50, 2
     k = 3
     novelty_threshold = 0.005
 
     descriptors = ["action_entropy", "length_spread"]
 
-    results_fp = Path("results_new/ll")
+    results_fp = Path("results_test/ll")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)

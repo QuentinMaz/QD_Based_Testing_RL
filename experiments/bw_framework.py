@@ -51,6 +51,7 @@ class BWFramework(Framework):
         self.action_bins = 10  # type: int
         self.path_to_measures_extrema = "grid/bw/measures.csv"  # type: str
         self.use_case = "Bipedal Walker"
+        self.input_fmt = "%1.0f"
 
     def generate_input(self, **kwargs):
         return self.rng.integers(low=1, high=4, size=15)
@@ -228,18 +229,18 @@ if __name__ == "__main__":
     features = MEASURES
 
     # experimental parameters
-    test_budget = 200
-    init_budget = 50
+    test_budget = 100
+    init_budget = 10
     cell_granularity = 50
 
     # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 50, 4
+    population_size, nb_iterations = 50, 2
     k = 3
     novelty_threshold = 0.005
 
     descriptors = ["action_entropy", "length_spread"]
 
-    results_fp = Path("results_new/bw")
+    results_fp = Path("results_test/bw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)
