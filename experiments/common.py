@@ -215,16 +215,18 @@ def retrieve_result(
     filepath: str, **kwargs
 ) -> Dict[str, Union[np.ndarray, pd.DataFrame]]:
     """
-    Returns the results of a testing methodology at @filepath as a dictionary of:
+    Returns the results of a testing methodology at ``filepath`` as a dictionary of:
     - 3 numpy arrays (inputs, behaviors and cells).
     - DataFrame of the logs.
     - DataFrame of the internal data of the Framework class.
     - Dictionary of the (experimental) configuration.
 
     Raise an error if any of the expected file is missing.
+
     Kwargs:
-    - "include_final_states", the dictionary has the latter at the key 'final_states'.
-    - "is_ns"; the dictionaries have particular NS logs at the key 'ns_logs'.
+    - "include_final_states": the dictionary has the latter at the key `final_states`.
+    - "is_ns": the dictionaries have particular NS logs at the key `ns_logs`.
+    - "include_expert_behaviors": the dictionaries have the latter at the key `expert_behaviors`.
     """
     filepaths = [f"{filepath}_{k}.txt" for k in ["inputs", "behaviors", "cells"]]
     filepaths.append(f"{filepath}_logs.txt")
@@ -238,49 +240,72 @@ def retrieve_result(
         for k in ["inputs", "behaviors", "cells"]
     }
     result["logs"] = process_txt_log(f"{filepath}_logs.txt")[0]
-    result["data"] = pd.read_csv(f"{filepath}_data.csv")
+    try:
+        result["data"] = pd.read_csv(f"{filepath}_data.csv")
+    except pd.errors.EmptyDataError:
+        result["data"] = pd.DataFrame()
+
     try:
         with open(f"{filepath}_config.json", "r") as f:
             result["config"] = json.load(f)
     except:
         result["config"] = {}
-        # print(f'No configuration found at {filepath}.')
+        warnings.warn(f"No configuration found at {filepath}.")
 
     include_final_states = kwargs.get("include_final_states", False)
     if include_final_states:
-        final_states_fp = f"{filepath}_final_states.txt"
-        if os.path.exists(final_states_fp):
-            result["final_states"] = np.loadtxt(final_states_fp, delimiter=",")
+        try:
+            seeds = result["config"]["env_seeds"]
+            result["final_states"] = [
+                np.loadtxt(f"{filepath}_final_states_{seed}.txt", delimiter=",")
+                for seed in seeds
+            ]
+        except Exception as e:
+            warnings.warn(f"Fetching of final states failed: {e}")
+
+    include_expert_behaviors = kwargs.get("include_expert_behaviors", False)
+    if include_expert_behaviors:
+        try:
+            seeds = result["config"]["env_seeds"]
+            result["expert_behaviors"] = [
+                np.loadtxt(f"{filepath}_expert_behaviors_{seed}.txt", delimiter=",")
+                for seed in seeds
+            ]
+        except Exception as e:
+            warnings.warn(f"Fetching of expert behaviors failed: {e}")
+
     is_ns = kwargs.get("is_ns", False)
     if is_ns:
         ns_logs_fp = f"{filepath}_ns_logs.txt"
         if os.path.exists(ns_logs_fp):
             result["ns_logs"] = process_txt_log(ns_logs_fp)[0]
+
     return result
 
 
 def read_results_from_folder(results_folder: str, **kwargs) -> List[Dict]:
     """
-    Returns all the results found in @results_folder as a list of dictionaries.
+    Returns all the results found in ``results_folder`` as a list of dictionaries.
+
     Kwargs:
-        - "include_final_states"; the dictionaries have the latter at the key 'final_states'.
-        - "is_ns"; the dictionaries have particular NS logs at the key 'ns_logs'.
+        - "include_final_states": the dictionaries have the latter at the key `final_states`.
+        - "is_ns": the dictionaries have particular NS logs at the key `ns_logs`.
+        - "include_expert_behaviors": the dictionaries have the latter at the key `expert_behaviors`.
     """
     assert os.path.isdir(results_folder)
     if not results_folder.endswith("/"):
         results_folder += "/"
 
-    results_filepathes = [
+    results_filepaths = [
         results_folder + fp
         for fp in set(f.split("_")[0] for f in os.listdir(results_folder))
     ]
-
     config = kwargs.get("config", {})
     name_key = kwargs.get("name_key", None)
 
     dicts = []
 
-    for fp in results_filepathes:
+    for fp in results_filepaths:
         config_fp = fp + "_config.json"
         if os.path.exists(config_fp):
             with open(config_fp, "r") as f:
@@ -293,8 +318,8 @@ def read_results_from_folder(results_folder: str, **kwargs) -> List[Dict]:
         try:
             d = retrieve_result(fp, **kwargs)
             dicts.append(d)
-        except FileNotFoundError:
-            pass
+        except Exception as e:
+            print(e)
     return dicts
 
 

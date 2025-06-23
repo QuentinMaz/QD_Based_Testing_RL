@@ -88,6 +88,7 @@ class LLExecutor(Executor):
             cell_granularity=50,
             features=MEASURES,
             descriptors=[],
+            name="MDPFuzz"
         )
 
         self.env_seeds = env_seeds
@@ -116,13 +117,7 @@ class LLExecutor(Executor):
         ]
 
         self.features = MEASURES
-
-        self.config = {
-            "use_case": "Lunar Lander",
-            "name": "MDPFuzz",
-            "env_seeds": self.env_seeds,
-            "features": self.features,
-        }
+        self.executor.config["env_seeds"] = self.env_seeds
 
     def generate_input(self, rng: np.random.Generator) -> np.ndarray:
         return self.executor.generate_input()
@@ -187,17 +182,14 @@ class LLExecutor(Executor):
         )
 
     def clean(self):
-        """Closes the file buffers and saves the configuration."""
+        """Closes the file buffers and saves the executor."""
         self.behaviors_buffer.close()
         self.inputs_buffer.close()
         self.logs_buffer.close()
         for buffer in self.final_states_buffers:
             buffer.close()
-        with open(f"{self.fp}_config.json", "w") as f:
-            f.write(json.dumps(self.config))
-        # creates empty files for result data structure consistency...
-        with open(f"{self.fp}_data.csv", "w") as f:
-            f.write("")
+        self.executor.save_state(self.fp)
+        # creates also this empty file 9not done by the executor) for result data structure consistency...
         with open(f"{self.fp}_cells.txt", "w") as f:
             f.write("")
 

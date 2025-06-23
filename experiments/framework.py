@@ -7,9 +7,10 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import tqdm
-from common import compute_cell, get_bin_edges
 from metrics import compute_action_distributions, compute_action_std, compute_entropy
 from stable_baselines3.common.base_class import BaseAlgorithm
+
+from common import compute_cell, get_bin_edges
 
 
 class Framework(ABC):
@@ -124,17 +125,22 @@ class Framework(ABC):
                     + self.features,
                 )
             )
-        pd.concat(cell_dfs, ignore_index=True).to_csv(f"{filepath}_data.csv", index=0)
-        # saves the inputs in a .npy file
-        np.save(
-            f"{filepath}_inputs.npy",
-            np.concatenate(
-                [
-                    np.array(list(map(lambda x: x[0], cell_data)))
-                    for cell_data in self.cells_data
-                ]
-            ),
-        )
+        if len(cell_dfs) != 0:
+            df = pd.concat(cell_dfs, ignore_index=True)
+        else:
+            df = pd.DataFrame()
+        df.to_csv(f"{filepath}_data.csv", index=0)
+
+        if len(self.cells_data) != 0:
+            np.save(
+                f"{filepath}_inputs.npy",
+                np.concatenate(
+                    [
+                        np.array(list(map(lambda x: x[0], cell_data)))
+                        for cell_data in self.cells_data
+                    ]
+                ),
+            )
         # saves the random state
         self.save_random_state(filepath)
         # saves the configuration

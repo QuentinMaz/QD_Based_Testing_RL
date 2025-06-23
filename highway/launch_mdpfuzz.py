@@ -11,7 +11,7 @@ from mdpfuzz.executor import Executor
 from mdpfuzz.logger import FuzzerLogger
 from mdpfuzz.mdpfuzz import Fuzzer
 from executor import HighwayTestManager
-from hw_framework import ENV_SEEDS, FEATURES
+from hw_framework import ENV_SEEDS, FEATURES, EXPERIMENT_SEEDS
 
 
 class MDPFuzzExecutor(Executor):
@@ -153,6 +153,20 @@ if __name__ == "__main__":
     results_fp = Path("results/hw/mdpfuzz")
     results_fp.mkdir(parents=True, exist_ok=True)
 
+    import sys
+    if len(sys.argv) > 0:
+        try:
+            seed_index = int(sys.argv[1])
+        except:
+            seed_index = 0
+    else:
+        seed_index = 0
+
+    if seed_index > len(EXPERIMENT_SEEDS):
+        print(f"Index of the experiment seed is invalid ({seed_index}). Set to 0.")
+        seed_index = 0
+
+    seed = EXPERIMENT_SEEDS[seed_index]
 
     executor = MDPFuzzExecutor(
         sim_steps=800,
@@ -161,16 +175,18 @@ if __name__ == "__main__":
     )
     fuzzer_logs_path = executor.fp + "_fuzzer"
     print("Log pathes:", results_fp, fuzzer_logs_path)
+    executor.config["rand_seed"] = seed
+    print("EXP SEED:", seed)
 
     model = executor.load_policy(
         model_path="saved_models/dqnagent/checkpoint-35000.tar"
     )
 
 
-    test_budget = 80
-    init_budget = 20
+    test_budget = 1000
+    init_budget = 100
     # GMM parameters won't be used
-    fuzzer = Fuzzer(random_seed=0, executor=executor, k=4, tau=0.1, gamma=0.01)
+    fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
     fuzzer.fuzzing_no_coverage(
         n=init_budget,
         test_budget=test_budget, # 2*n will be removed since we assume that test_budget is the TOTAL budget
