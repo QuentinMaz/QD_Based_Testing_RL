@@ -195,6 +195,11 @@ class LLExecutor(Executor):
             buffer.close()
         with open(f"{self.fp}_config.json", "w") as f:
             f.write(json.dumps(self.config))
+        # creates empty files for result data structure consistency...
+        with open(f"{self.fp}_data.csv", "w") as f:
+            f.write("")
+        with open(f"{self.fp}_cells.txt", "w") as f:
+            f.write("")
 
 
 if __name__ == "__main__":
