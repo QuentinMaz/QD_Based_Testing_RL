@@ -17,6 +17,12 @@ def compute_action_std(actions_list: List[np.ndarray], max_time: int = None) -> 
 
 
 def compute_action_distributions(actions_list: List[np.ndarray], range: List[int], bins: int, epsilon: float = 1e-5, max_time: int = None) -> np.ndarray:
+    """
+    Returns
+    -------
+    np.ndarray
+        Densities of the action distributions for each timestep.
+    """
     size = min([len(l) for l in actions_list])
     if max_time is not None:
         size = min(size, max_time)
@@ -39,6 +45,12 @@ def compute_action_distributions(actions_list: List[np.ndarray], range: List[int
 
 
 def compute_entropy(distributions: np.ndarray) -> float:
+    """
+    Returns
+    -------
+    np.ndarray
+        Mean value of the time wise entropies (summed over the number of action distribution densities).
+    """
     return (np.log(distributions) * -distributions).sum(axis=-1).mean()
 
 
