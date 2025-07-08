@@ -200,6 +200,7 @@ class HighwayTestManager(TestManager):
             length_spread=max(ep_length) - min(ep_length),
             action_std=compute_action_std(actions),
             action_entropy=compute_entropy(action_dist),
+            action_dist=action_dist
         )
 
         return np.mean(acc_rewards), np.mean(failures), final_obs_list, behaviors_list, measures
@@ -234,7 +235,6 @@ class HighwayTestManager(TestManager):
                 obs, state=None, deterministic=deterministic
             )
             obs, reward, terminated, truncated, info = self.env.step(action)
-
             # obs_seq.append(obs)
             action_seq.append(action)
             reward_seq.append(reward)

@@ -157,10 +157,10 @@ def pickle_to_txt(file_path: str, fmt: str = None):
     The latter are exported on a single line with `.reshape(1, -1)`.
     Note that the original shape is not saved.
 
-    Paramters
-    ---------
+    Parameters
+    ----------
     fmt : str, optional
-        - Format for `np.savetxt` (default to None).
+        Format for `np.savetxt` (default to None).
     """
     pickle_obj = read_pickle_file(file_path)
     if not isinstance(pickle_obj, List) and not np.all(
