@@ -68,7 +68,7 @@ class BWFramework(Framework):
         mutated_input = np.clip(mutated_input, 1, 3)
         return mutated_input
 
-    def execute_policy(self, input, model, env_seed, deterministic=True):
+    def execute_policy(self, input, model, env_seed, deterministic=True, render=False):
         env = gym.make("BipedalWalkerHardcore-v4", rand_seed=env_seed)
 
         acc_reward = 0.0
@@ -79,9 +79,14 @@ class BWFramework(Framework):
         t0 = time.time()
 
         action_seq = []
+        frames = []
+        if render:
+            frames.append(env.render("rgb_array"))
         for t in range(300):
             action, state = model.predict(obs, state=state, deterministic=deterministic)
             obs, reward, done, info = env.step(action)
+            if render:
+                frames.append(env.render("rgb_array"))
             action_seq.append(action)
             features += info["features"]  # numpy array
             acc_reward += reward
@@ -100,6 +105,7 @@ class BWFramework(Framework):
             obs,
             exec_time,
             np.array(action_seq),
+            frames
         )
 
 

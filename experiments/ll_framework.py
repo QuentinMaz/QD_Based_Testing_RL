@@ -38,7 +38,7 @@ class LLFramework(Framework):
             [DEFAULT_MAX, DEFAULT_MAX],
         )
 
-    def execute_policy(self, input, model, env_seed, deterministic=True):
+    def execute_policy(self, input, model, env_seed, deterministic=True, render=False):
         t0 = time.time()
         env: gym.Env = gym.make("LunarLander-v3")
         env.seed(env_seed)
@@ -51,10 +51,15 @@ class LLFramework(Framework):
         impact_x_pos = None
         impact_y_vel = None
         all_y_vels = []
+        frames = []
+        if render:
+            frames.append(env.render("rgb_array"))
 
         for _ in range(1000):
             action, state = model.predict(obs, state=state, deterministic=deterministic)
             obs, reward, done, info = env.step(action)
+            if render:
+                frames.append(env.render("rgb_array"))
             acc_reward += reward
 
             actions.append(action)
@@ -76,7 +81,7 @@ class LLFramework(Framework):
         behavior = np.array([impact_x_pos, impact_y_vel])
         env.close()
         exec_time = time.time() - t0
-        return acc_reward, (reward == -100), behavior, obs, exec_time, actions
+        return acc_reward, (reward == -100), behavior, obs, exec_time, np.expand_dims(actions, axis=1), frames
 
 
 class LLExecutor(Executor):

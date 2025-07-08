@@ -14,6 +14,21 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from common import compute_cell, get_bin_edges
 
 
+def concatenate_frames(frames_list: List[List[np.ndarray]]) -> np.ndarray:
+    frames_list = [np.array(f) for f in frames_list]
+    white_frame = np.ones_like(frames_list[0][0])
+    max_length = np.max([len(l) for l in frames_list])
+    frames_list = [
+        np.append(
+            f,
+            white_frame[None].repeat(max_length - len(f), axis=0),
+            axis=0
+        ) if len(f) != max_length else f
+        for f in frames_list
+    ]
+    return np.concatenate(frames_list, axis=1)
+
+
 class Framework(ABC):
     def __init__(
         self,
@@ -340,7 +355,39 @@ class Framework(ABC):
         model: BaseAlgorithm,
         env_seed: int,
         deterministic: bool = True,
-    ) -> Tuple[float, bool, np.ndarray, np.ndarray, float]:
+        render: bool = False
+    ) -> Tuple[float, bool, np.ndarray, np.ndarray, float, np.ndarray, List[np.ndarray]]:
+        """
+        Parameters
+        ----------
+        input : np.ndarray
+            Encoded values for setting the initial situation depicted by the test case.
+        model : BaseAlgorithm
+            Model under test.
+        env_seed : int
+            Seed to use when resetting the environment.
+        deterministic : bool, optional
+            If False, `model` is sampled. Default to True.
+        render : bool, optional
+            Whether to render the execution. Default to False.
+
+        Returns
+        -------
+        acc_reward : float
+            Accumulated reward.
+        failed : bool
+            Failure flag.
+        behavior : np.ndarray
+            Expert behavior.
+        final_obs : np.ndarray
+            Final observation.
+        exec_time : float
+            Execution time.
+        action_seq : np.ndarray
+            Actions
+        frames : List[np.ndarray]
+            List of RGB frames if `render` is True; empty list otherwise.
+        """
         raise NotImplementedError()
 
     def execute_stochastic_policy(
@@ -353,8 +400,8 @@ class Framework(ABC):
         final_obs_list = []
         behaviors_list = []
         for seed in env_seeds:
-            acc_reward, failed, behavior, final_obs, exec_time, action_seq = (
-                self.execute_policy(input, model, seed, deterministic=True)
+            acc_reward, failed, behavior, final_obs, exec_time, action_seq, _frames = (
+                self.execute_policy(input, model, seed, deterministic=True, render=False)
             )
             rewards.append(acc_reward)
             failures.append(failed)
@@ -374,6 +421,7 @@ class Framework(ABC):
             length_spread=max(ep_length) - min(ep_length),
             action_std=compute_action_std(actions),
             action_entropy=compute_entropy(action_dist),
+            action_dist=action_dist
         )
 
         return (
@@ -381,6 +429,53 @@ class Framework(ABC):
             np.mean(failures),
             final_obs_list,
             behaviors_list,
+            measures,
+        )
+
+
+    def render_stochastic_policy(
+        self,
+        input: np.ndarray,
+        model: BaseAlgorithm,
+        env_seeds: List[int],
+    ) -> Tuple[float, float, List[np.ndarray], List[np.ndarray], np.ndarray, Dict[str, float]]:
+        """Same as `execute_stochastic_policy` but the results include the concatenated frames of the executions."""
+        rewards, failures, actions = [], [], []
+        final_obs_list = []
+        behaviors_list = []
+        frames_list = []
+        for seed in env_seeds:
+            acc_reward, failed, behavior, final_obs, exec_time, action_seq, frames = (
+                self.execute_policy(input, model, seed, deterministic=True, render=True)
+            )
+            rewards.append(acc_reward)
+            frames_list.append(frames)
+            failures.append(failed)
+            actions.append(action_seq)
+            final_obs_list.append(final_obs)
+            behaviors_list.append(behavior)
+
+        # metrics for possible generic behavior space
+        ep_length = [len(l) for l in actions]
+        action_dist = compute_action_distributions(
+            actions, range=self.action_range, bins=self.action_bins
+        )
+
+        measures = dict(
+            length_mean=np.mean(ep_length),
+            length_std=np.std(ep_length),
+            length_spread=max(ep_length) - min(ep_length),
+            action_std=compute_action_std(actions),
+            action_entropy=compute_entropy(action_dist),
+            action_dist=action_dist
+        )
+
+        return (
+            np.mean(rewards),
+            np.mean(failures),
+            final_obs_list,
+            behaviors_list,
+            concatenate_frames(frames_list),
             measures,
         )
 
