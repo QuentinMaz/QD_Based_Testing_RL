@@ -1,4 +1,5 @@
 from typing import List
+
 import numpy as np
 from scipy.stats import entropy
 
@@ -8,15 +9,17 @@ def compute_action_std(actions_list: List[np.ndarray], max_time: int = None) -> 
     if max_time is not None:
         size = min(size, max_time)
 
-    action_std = np.mean(
-        np.std(
-            [sub_list[:size] for sub_list in actions_list], axis=0
-        )
-    )
+    action_std = np.mean(np.std([sub_list[:size] for sub_list in actions_list], axis=0))
     return action_std
 
 
-def compute_action_distributions(actions_list: List[np.ndarray], range: List[int], bins: int, epsilon: float = 1e-5, max_time: int = None) -> np.ndarray:
+def compute_action_distributions(
+    actions_list: List[np.ndarray],
+    range: List[int],
+    bins: int,
+    epsilon: float = 1e-5,
+    max_time: int = None,
+) -> np.ndarray:
     """
     Returns
     -------
@@ -26,32 +29,50 @@ def compute_action_distributions(actions_list: List[np.ndarray], range: List[int
     size = min([len(l) for l in actions_list])
     if max_time is not None:
         size = min(size, max_time)
-    sub_action_list = [sub_list[:size] for sub_list in actions_list]  # type: List[np.ndarray]
+    sub_action_list = [
+        sub_list[:size] for sub_list in actions_list
+    ]  # type: List[np.ndarray]
     # shape (time, action, samples)
     action_values = np.stack(sub_action_list, axis=-1)
     # bins every action
     action_distribution = np.apply_along_axis(
         func1d=lambda x: np.histogram(x, bins=bins, range=range, density=True)[0],
         arr=action_values,
-        axis=-1 # 2
+        axis=-1,  # 2
     )
     action_distribution += epsilon
     normalized_distribution = np.apply_along_axis(
-        func1d=lambda x: x / sum(x),
-        arr=action_distribution,
-        axis=-1 # 2
+        func1d=lambda x: x / sum(x), arr=action_distribution, axis=-1  # 2
     )
     return normalized_distribution
 
 
-def compute_entropy(distributions: np.ndarray) -> float:
+def compute_entropy(distributions: np.ndarray) -> np.ndarray:
     """
     Returns
     -------
     np.ndarray
-        Mean value of the time wise entropies (summed over the number of action distribution densities).
+        Time wise entropies (summed over the number of action distribution densities).
     """
-    return (np.log(distributions) * -distributions).sum(axis=-1).mean()
+    return (np.log(distributions) * -distributions).sum(axis=-1)
+
+
+def compute_divergence_time(
+    actions_list: List[np.ndarray], range: List[int], bins: int
+) -> int:
+    size = min([len(l) for l in actions_list])
+    sub_action_list = [
+        sub_list[:size] for sub_list in actions_list
+    ]  # type: List[np.ndarray]
+    action_values = np.stack(sub_action_list, axis=-1)
+    binned_actions = np.apply_along_axis(
+        func1d=lambda x: np.histogram(x, bins=bins, range=range, density=False)[0],
+        arr=action_values,
+        axis=-1,
+    )
+    # first time (argmax) for which the sums of the binned actions do not equal to 1 (i.e., the actions differ)
+    # actions are binned first since they can be continuous (e.g., Bipedal Walker)
+    return ((binned_actions != 0).sum(axis=-1) != 1).any(axis=-1).argmax()
 
 
 if __name__ == "__main__":
@@ -68,8 +89,8 @@ if __name__ == "__main__":
     assert np.allclose(np.sum(bw_dist, axis=2), 1)
 
     # testing entropy
-    ll_entropy = compute_entropy(ll_dist)
-    bw_entropy = compute_entropy(bw_dist)
+    ll_entropy = compute_entropy(ll_dist).mean()
+    bw_entropy = compute_entropy(bw_dist).mean()
 
     print("LL entropy:", ll_entropy)
     print("BW entropy:", bw_entropy)

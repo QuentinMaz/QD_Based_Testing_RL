@@ -19,24 +19,26 @@ MEASURES = [
     "length_std",
     "length_spread",
     "action_std",
-    "action_entropy",
+    "action_entropy_mean",
+    "action_entropy_argmax",
+    "action_divergence",
 ]
 # TODO: currently under test
 MEAS_STR_INDICES = [
-    ["action_std", "length_mean"],
-    ["action_std", "length_std"],
-    ["action_std", "length_spread"],
-    ["action_entropy", "length_mean"],
-    ["action_entropy", "length_std"],
-    ["action_entropy", "length_spread"],
+    ["action_entropy_mean", "length_mean"],
+    ["action_entropy_mean", "length_spread"],
+    ["action_entropy_argmax", "length_mean"],
+    ["action_entropy_argmax", "length_spread"],
+    ["action_divergence", "length_mean"],
+    ["action_divergence", "length_spread"],
 ]
 MEAS_INDICES = [
-    [3, 0],
-    [3, 1],
-    [3, 2],
     [4, 0],
-    [4, 1],
     [4, 2],
+    [5, 0],
+    [5, 2],
+    [6, 0],
+    [6, 2],
 ]
 
 

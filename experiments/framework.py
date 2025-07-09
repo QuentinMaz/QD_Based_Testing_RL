@@ -8,7 +8,12 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import tqdm
-from metrics import compute_action_distributions, compute_action_std, compute_entropy
+from metrics import (
+    compute_action_distributions,
+    compute_action_std,
+    compute_divergence_time,
+    compute_entropy,
+)
 from stable_baselines3.common.base_class import BaseAlgorithm
 
 from common import compute_cell, get_bin_edges
@@ -19,11 +24,11 @@ def concatenate_frames(frames_list: List[List[np.ndarray]]) -> np.ndarray:
     white_frame = np.ones_like(frames_list[0][0])
     max_length = np.max([len(l) for l in frames_list])
     frames_list = [
-        np.append(
-            f,
-            white_frame[None].repeat(max_length - len(f), axis=0),
-            axis=0
-        ) if len(f) != max_length else f
+        (
+            np.append(f, white_frame[None].repeat(max_length - len(f), axis=0), axis=0)
+            if len(f) != max_length
+            else f
+        )
         for f in frames_list
     ]
     return np.concatenate(frames_list, axis=1)
@@ -303,25 +308,26 @@ class Framework(ABC):
             self.behaviors_buffer,
             self.inputs_buffer,
             self.cells_buffer,
-            self.logs_buffer
+            self.logs_buffer,
         ]
         if self.final_states_buffers is not None:
-          buffers += self.final_states_buffers
+            buffers += self.final_states_buffers
 
         if self.expert_behaviors_buffers is not None:
-          buffers += self.expert_behaviors_buffers
+            buffers += self.expert_behaviors_buffers
 
         for buffer in buffers:
             if buffer is not None:
                 buffer.close()
 
     def log_execution(
-            self,
-            acc_reward: float,
-            failure_prob: float,
-            cell_selected_index: int,
-            mutated_input_index: int,
-            exec_time: float = None):
+        self,
+        acc_reward: float,
+        failure_prob: float,
+        cell_selected_index: int,
+        mutated_input_index: int,
+        exec_time: float = None,
+    ):
         log = f"episode_reward: {acc_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_selected_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}"
         if exec_time is not None:
             log += f", execution_time: {exec_time}"
@@ -330,14 +336,18 @@ class Framework(ABC):
             file=self.logs_buffer,
         )
 
-    def log_data(self,
-            input: np.ndarray,
-            behavior: np.ndarray,
-            cell: np.ndarray,
-            final_states: List[np.ndarray],
-            expert_behaviors: List[np.ndarray]):
+    def log_data(
+        self,
+        input: np.ndarray,
+        behavior: np.ndarray,
+        cell: np.ndarray,
+        final_states: List[np.ndarray],
+        expert_behaviors: List[np.ndarray],
+    ):
 
-        np.savetxt(self.inputs_buffer, input.reshape(1, -1), fmt=self.input_fmt, delimiter=",")
+        np.savetxt(
+            self.inputs_buffer, input.reshape(1, -1), fmt=self.input_fmt, delimiter=","
+        )
         np.savetxt(self.behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
         np.savetxt(
             self.cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
@@ -347,7 +357,6 @@ class Framework(ABC):
         for eb_buffer, eb in zip(self.expert_behaviors_buffers, expert_behaviors):
             np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
-
     @abstractmethod
     def execute_policy(
         self,
@@ -355,8 +364,10 @@ class Framework(ABC):
         model: BaseAlgorithm,
         env_seed: int,
         deterministic: bool = True,
-        render: bool = False
-    ) -> Tuple[float, bool, np.ndarray, np.ndarray, float, np.ndarray, List[np.ndarray]]:
+        render: bool = False,
+    ) -> Tuple[
+        float, bool, np.ndarray, np.ndarray, float, np.ndarray, List[np.ndarray]
+    ]:
         """
         Parameters
         ----------
@@ -401,7 +412,9 @@ class Framework(ABC):
         behaviors_list = []
         for seed in env_seeds:
             acc_reward, failed, behavior, final_obs, exec_time, action_seq, _frames = (
-                self.execute_policy(input, model, seed, deterministic=True, render=False)
+                self.execute_policy(
+                    input, model, seed, deterministic=True, render=False
+                )
             )
             rewards.append(acc_reward)
             failures.append(failed)
@@ -414,14 +427,20 @@ class Framework(ABC):
         action_dist = compute_action_distributions(
             actions, range=self.action_range, bins=self.action_bins
         )
+        entropies = compute_entropy(action_dist)
+        divergence_time = compute_divergence_time(
+            actions, range=self.action_range, bins=self.action_bins
+        )
 
         measures = dict(
             length_mean=np.mean(ep_length),
             length_std=np.std(ep_length),
             length_spread=max(ep_length) - min(ep_length),
             action_std=compute_action_std(actions),
-            action_entropy=compute_entropy(action_dist),
-            action_dist=action_dist
+            action_entropy_mean=entropies.mean(),
+            action_entropy_argmax=np.argmax(entropies, axis=0).mean(),
+            action_divergence=divergence_time,
+            action_dist=action_dist,
         )
 
         return (
@@ -432,13 +451,14 @@ class Framework(ABC):
             measures,
         )
 
-
     def render_stochastic_policy(
         self,
         input: np.ndarray,
         model: BaseAlgorithm,
         env_seeds: List[int],
-    ) -> Tuple[float, float, List[np.ndarray], List[np.ndarray], np.ndarray, Dict[str, float]]:
+    ) -> Tuple[
+        float, float, List[np.ndarray], List[np.ndarray], np.ndarray, Dict[str, float]
+    ]:
         """Same as `execute_stochastic_policy` but the results include the concatenated frames of the executions."""
         rewards, failures, actions = [], [], []
         final_obs_list = []
@@ -460,14 +480,20 @@ class Framework(ABC):
         action_dist = compute_action_distributions(
             actions, range=self.action_range, bins=self.action_bins
         )
+        entropies = compute_entropy(action_dist)
+        divergence_time = compute_divergence_time(
+            actions, range=self.action_range, bins=self.action_bins
+        )
 
         measures = dict(
             length_mean=np.mean(ep_length),
             length_std=np.std(ep_length),
             length_spread=max(ep_length) - min(ep_length),
             action_std=compute_action_std(actions),
-            action_entropy=compute_entropy(action_dist),
-            action_dist=action_dist
+            action_entropy_mean=entropies.mean(),
+            action_entropy_argmax=np.argmax(entropies, axis=0).mean(),
+            action_divergence=divergence_time,
+            action_dist=action_dist,
         )
 
         return (
@@ -571,9 +597,11 @@ class Framework(ABC):
                 failure_probs[i],
                 -1,
                 mutated_input_index,
-                execution_times[i]
+                execution_times[i],
             )
-            self.log_data(inputs[i], behaviors[i], cell, final_states[i], expert_behaviors[i])
+            self.log_data(
+                inputs[i], behaviors[i], cell, final_states[i], expert_behaviors[i]
+            )
 
         start_time = time.time()
         current_time = time.time()
@@ -605,19 +633,9 @@ class Framework(ABC):
                 cell, mutated_input, episode_reward, failure_prob, behavior
             )
             self.log_execution(
-                episode_reward,
-                failure_prob,
-                cell_index,
-                mutated_input_index,
-                t1 - t0
+                episode_reward, failure_prob, cell_index, mutated_input_index, t1 - t0
             )
-            self.log_data(
-                mutated_input,
-                behavior,
-                cell,
-                final_obs_list,
-                behaviors_list
-            )
+            self.log_data(mutated_input, behavior, cell, final_obs_list, behaviors_list)
 
             current_time = time.time()
             nb_executions += 1
@@ -697,20 +715,8 @@ class Framework(ABC):
             input_index = self.update_cell(
                 cell, input, episode_reward, failure_prob, behavior
             )
-            self.log_execution(
-                episode_reward,
-                failure_prob,
-                -1,
-                input_index,
-                t1 - t0
-            )
-            self.log_data(
-                input,
-                behavior,
-                cell,
-                final_obs_list,
-                behaviors_list
-            )
+            self.log_execution(episode_reward, failure_prob, -1, input_index, t1 - t0)
+            self.log_data(input, behavior, cell, final_obs_list, behaviors_list)
 
             current_time = time.time()
             nb_executions += 1
@@ -783,15 +789,11 @@ class Framework(ABC):
             self.log_execution(
                 reward,
                 failure_prob,
-                -1, # parent's cell is not logged
-                updated_cell_index
+                -1,  # parent's cell is not logged
+                updated_cell_index,
             )
             self.log_data(
-                input,
-                behavior,
-                cell,
-                final_states_list,
-                expert_behaviors_list
+                input, behavior, cell, final_states_list, expert_behaviors_list
             )
 
         # helpers 2: evaluates a batch of individuals

@@ -48,7 +48,7 @@ class BWFramework(Framework):
         super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
 
         self.action_range = [-1, 1]  # type: Tuple[int, int]
-        self.action_bins = 10  # type: int
+        self.action_bins = 8  # type: int
         self.path_to_measures_extrema = "grid/bw/measures.csv"  # type: str
         self.use_case = "Bipedal Walker"
         self.input_fmt = "%1.0f"
@@ -235,34 +235,37 @@ if __name__ == "__main__":
     features = MEASURES
 
     # experimental parameters
-    test_budget = 100
-    init_budget = 10
+    test_budget = 5000
+    init_budget = 1000
     cell_granularity = 50
 
-    # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 50, 2
+    population_size, nb_iterations = 100, 50
     k = 3
     novelty_threshold = 0.005
 
-    descriptors = ["action_entropy", "length_spread"]
+    descriptor_sets = [
+        ["action_entropy_mean", "length_mean"],
+        ["action_entropy_mean", "length_spread"],
+    ]
+    descriptors = descriptor_sets[0]
 
-    results_fp = Path("results_test/bw")
+    results_fp = Path("results_new/bw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)
-    (results_fp / "rt").mkdir(parents=True, exist_ok=True)
-    (results_fp / "mdpfuzz").mkdir(parents=True, exist_ok=True)
+    # (results_fp / "rt").mkdir(parents=True, exist_ok=True)
+    # (results_fp / "mdpfuzz").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
 
-        f = BWFramework(
-            seed,
-            cell_granularity,
-            features=features,
-            descriptors=descriptors,
-        )
-        f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
+        # f = BWFramework(
+        #     seed,
+        #     cell_granularity,
+        #     features=features,
+        #     descriptors=descriptors,
+        # )
+        # f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
 
         f = BWFramework(
             seed,
@@ -290,17 +293,17 @@ if __name__ == "__main__":
             str(results_fp / "ns"),
         )
 
-        executor = BWExecutor(seed, ENV_SEEDS, log_path=str(results_fp / "mdpfuzz"))
-        fuzzer_logs_path = executor.fp + "_fuzzer"
-        fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
-        fuzzer.fuzzing_no_coverage(
-            n=init_budget,
-            test_budget=test_budget,  # 2*n will be removed since we assume that test_budget is the TOTAL budget
-            policy=model,
-            saving_path=fuzzer_logs_path,
-            local_sensitivity=True,  # don"t re-run for computing the sensitivity
-            exp_name="Bipedal Walker",
-            light_pool=True,  # don"t log the inputs
-            save_logs_only=True,  # don"t save evaluated inputs
-        )
-        executor.clean()
+        # executor = BWExecutor(seed, ENV_SEEDS, log_path=str(results_fp / "mdpfuzz"))
+        # fuzzer_logs_path = executor.fp + "_fuzzer"
+        # fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
+        # fuzzer.fuzzing_no_coverage(
+        #     n=init_budget,
+        #     test_budget=test_budget,  # 2*n will be removed since we assume that test_budget is the TOTAL budget
+        #     policy=model,
+        #     saving_path=fuzzer_logs_path,
+        #     local_sensitivity=True,  # don"t re-run for computing the sensitivity
+        #     exp_name="Bipedal Walker",
+        #     light_pool=True,  # don"t log the inputs
+        #     save_logs_only=True,  # don"t save evaluated inputs
+        # )
+        # executor.clean()
