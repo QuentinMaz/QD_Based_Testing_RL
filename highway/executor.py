@@ -12,13 +12,13 @@ from stable_baselines3 import DQN
 from device import DEVICE
 from my_highway import (
     InitializableHighwayEnv,
-    generate_input,
     generate_even_input,
     mutate_positions,
 )
 from metrics import (
     compute_action_distributions,
     compute_action_std,
+    compute_divergence_time,
     compute_entropy,
 )
 from agents import load_model
@@ -184,6 +184,9 @@ class HighwayTestManager(TestManager):
                     seed=self.seeds[i],
                 )
             )
+            if len(action_seq.shape) == 1:
+                action_seq = np.expand_dims(action_seq, axis=-1)
+
             failures.append(failure)
             actions.append(action_seq)
             acc_rewards.append(np.sum(reward_seq))
@@ -193,13 +196,17 @@ class HighwayTestManager(TestManager):
         # metrics for possible generic behavior space
         ep_length = [len(l) for l in actions]
         action_dist = compute_action_distributions(actions, range=[0, 5], bins=5)
+        entropies = compute_entropy(action_dist)
+        divergence_time = compute_divergence_time(actions, range=[0, 5], bins=5)
 
         measures = dict(
             length_mean=np.mean(ep_length),
             length_std=np.std(ep_length),
             length_spread=max(ep_length) - min(ep_length),
             action_std=compute_action_std(actions),
-            action_entropy=compute_entropy(action_dist),
+            action_entropy_mean=entropies.mean(),
+            action_entropy_argmax=np.argmax(entropies, axis=0).mean(),
+            action_divergence=divergence_time,
             action_dist=action_dist
         )
 

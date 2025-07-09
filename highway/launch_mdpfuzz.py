@@ -150,7 +150,7 @@ def accumulate_failures(failures: np.ndarray) -> np.ndarray:
 if __name__ == "__main__":
     from pathlib import Path
 
-    results_fp = Path("results/hw/mdpfuzz")
+    results_fp = Path("results_new/hw/mdpfuzz")
     results_fp.mkdir(parents=True, exist_ok=True)
 
     import sys
@@ -183,8 +183,9 @@ if __name__ == "__main__":
     )
 
 
-    test_budget = 1000
-    init_budget = 100
+    test_budget = 5000
+    init_budget = 1000
+
     # GMM parameters won't be used
     fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
     fuzzer.fuzzing_no_coverage(
@@ -199,19 +200,19 @@ if __name__ == "__main__":
     )
     executor.clean()
 
-    mdpfuzz_failures = accumulate_failures(
-        FuzzerLogger(
-            fuzzer_logs_path + "_logs.txt"
-        ).load_logs()["oracle"].astype(int).to_numpy()
-    )
+    # mdpfuzz_failures = accumulate_failures(
+    #     FuzzerLogger(
+    #         fuzzer_logs_path + "_logs.txt"
+    #     ).load_logs()["oracle"].astype(int).to_numpy()
+    # )
 
-    fig, ax = plt.subplots(figsize=(6, 4))
-    x = np.arange(len(mdpfuzz_failures))
-    ax.plot(x, mdpfuzz_failures, label="MDPFuzz")
-    ax.legend()
-    ax.set_xlabel("# Iterations")
-    ax.set_ylabel("# Failures")
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_title("Number of failures over test iterations")
-    fig.tight_layout()
-    fig.savefig(fuzzer_logs_path + "_failures.png")
+    # fig, ax = plt.subplots(figsize=(6, 4))
+    # x = np.arange(len(mdpfuzz_failures))
+    # ax.plot(x, mdpfuzz_failures, label="MDPFuzz")
+    # ax.legend()
+    # ax.set_xlabel("# Iterations")
+    # ax.set_ylabel("# Failures")
+    # ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+    # ax.set_title("Number of failures over test iterations")
+    # fig.tight_layout()
+    # fig.savefig(fuzzer_logs_path + "_failures.png")

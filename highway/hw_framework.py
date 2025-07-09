@@ -1,26 +1,42 @@
 import json
 import os
 import time
-import torch
-import tqdm
-import numpy as np
-import pandas as pd
-
-from my_utils import compute_cell, get_bin_edges
-from stable_baselines3.common.base_class import BaseAlgorithm
 from typing import List, Tuple
 
-from executor import HighwayTestManager
+import numpy as np
+import pandas as pd
+import torch
+import tqdm
 from agents import AgentWrapper
+from my_utils import compute_cell, get_bin_edges
+from stable_baselines3.common.base_class import BaseAlgorithm
+
+from executor import HighwayTestManager
 
 EXPERIMENT_SEEDS = [2021, 42, 2023, 20, 0, 10, 4, 2006, 512, 1453]
 ENV_SEEDS = [0, 1, 2]
 POP_SIZES = [100, 250, 500]
 ITERATIONS = [50, 20, 10]
-FEATURES = ["length_mean", "length_std", "length_spread", "action_std", "action_entropy"]
+FEATURES = [
+    "length_mean",
+    "length_std",
+    "length_spread",
+    "action_std",
+    "action_entropy_mean",
+    "action_entropy_argmax",
+    "action_divergence",
+]
 
-class Framework():
-    def __init__(self, rand_seed: int, cell_granularity: int, features: List[str], descriptors: Tuple[str, str], **kwargs) -> None:
+
+class Framework:
+    def __init__(
+        self,
+        rand_seed: int,
+        cell_granularity: int,
+        features: List[str],
+        descriptors: Tuple[str, str],
+        **kwargs,
+    ) -> None:
         """Init.
 
         Parameters
@@ -67,7 +83,7 @@ class Framework():
             "features": self.features,
             "descriptors": self.descriptors,
             "descriptor_indices": self.descriptor_indices,
-            "use_case": "Highway"
+            "use_case": "Highway",
         }
 
         # kwargs (name to include in the experimental configuration etc.)
@@ -78,7 +94,6 @@ class Framework():
             self.config["name"] = self.version
 
         self.executor = HighwayTestManager()
-
 
     def save_configuration(self, filepath: str):
         """
@@ -91,14 +106,12 @@ class Framework():
         f.write(json.dumps(self.config))
         f.close()
 
-
     def save_random_state(self, filepath: str):
         """Saves the state of the BitGenerator instance (of the Generator)."""
         f = open(f"{filepath}_state.json", "w")
         f.write(json.dumps(self.rng.bit_generator.state))
         f.close()
         return self.rng.bit_generator.state
-
 
     def save_state(self, filepath: str):
         """
@@ -111,18 +124,37 @@ class Framework():
             # a record consist of a score, the oracle result, the cell index, the cell and behavior point
             cell_dfs.append(
                 pd.DataFrame.from_records(
-                    data=[[mean_acc_reward, failure_prob, i] + self.cells[i] + behavior.tolist() for (_input, mean_acc_reward, failure_prob, behavior) in cell_data],
-                    columns=["mean_acc_reward", "failure_prob", "cell_index"] + [f"cell{i}" for i in range(2)] + self.features
-                    )
+                    data=[
+                        [mean_acc_reward, failure_prob, i]
+                        + self.cells[i]
+                        + behavior.tolist()
+                        for (
+                            _input,
+                            mean_acc_reward,
+                            failure_prob,
+                            behavior,
+                        ) in cell_data
+                    ],
+                    columns=["mean_acc_reward", "failure_prob", "cell_index"]
+                    + [f"cell{i}" for i in range(2)]
+                    + self.features,
                 )
+            )
         pd.concat(cell_dfs, ignore_index=True).to_csv(f"{filepath}_data.csv", index=0)
         # saves the inputs in a .npy file
-        np.save(f"{filepath}_inputs.npy", np.concatenate([np.array(list(map(lambda x: x[0], cell_data))) for cell_data in self.cells_data]))
+        np.save(
+            f"{filepath}_inputs.npy",
+            np.concatenate(
+                [
+                    np.array(list(map(lambda x: x[0], cell_data)))
+                    for cell_data in self.cells_data
+                ]
+            ),
+        )
         # saves the random state
         self.save_random_state(filepath)
         # saves the configuration
         self.save_configuration(filepath)
-
 
     def load_configuration(self, filepath: str):
         """Loads and sets the configuration attribute of the instance."""
@@ -132,7 +164,6 @@ class Framework():
         self.config = json.load(f)
         f.close()
 
-
     def load_random_state(self, filepath: str):
         """Loads and sets the state of BitGenerator instance (of the Generator)."""
         if not filepath.endswith("state"):
@@ -140,7 +171,6 @@ class Framework():
         f = open(f"{filepath}.json", "r")
         self.rng.bit_generator.state = json.load(f)
         f.close()
-
 
     def load_state(self, filepath: str):
         """Loads a state of an instance to resume testing and returns the number of test cases loaded."""
@@ -160,14 +190,19 @@ class Framework():
 
         for i, row in df.iterrows():
             row_data = row.tolist()
-            cell, input, performance, is_faulty, behavior = row_data[3:3 + bs_dim], inputs[i], row_data[0], row_data[1], row_data[3 + bs_dim:]
+            cell, input, performance, is_faulty, behavior = (
+                row_data[3 : 3 + bs_dim],
+                inputs[i],
+                row_data[0],
+                row_data[1],
+                row_data[3 + bs_dim :],
+            )
             self.update_cell(cell, input, performance, is_faulty, np.array(behavior))
 
         self.load_random_state(filepath)
         self.load_configuration(filepath)
         self.loaded = True
         return len(df)
-
 
     def select_input(self, index: int):
         """Samples from the indexed cell the next input."""
@@ -176,13 +211,18 @@ class Framework():
         input_index: int = self.rng.integers(0, len(self.cells_data[index]))
         return self.cells_data[index][input_index][0]
 
-
     def select_cell(self):
         """Selects the cell for the next search iteration."""
         return int(self.rng.integers(0, len(self.cells)))
 
-
-    def update_cell(self, cell: List[int], input: np.ndarray, performance: float, failure_prob: float, behavior: np.ndarray):
+    def update_cell(
+        self,
+        cell: List[int],
+        input: np.ndarray,
+        performance: float,
+        failure_prob: float,
+        behavior: np.ndarray,
+    ):
         """
         Records the execution result to the corresponding cell.
         It returns the index of the cell updated.
@@ -199,21 +239,26 @@ class Framework():
             # print(f"[DATA UPDATE LOG] NEW CELL CREATED. CURRENT SCORE: {performance}.")
         finally:
             # sanity checks
-            assert len(self.cells) == len(self.cells_data), "inconsistent cells and cells_data lists!"
-            self.last_cell_updated = index if index is not None else (len(self.cells) - 1)
+            assert len(self.cells) == len(
+                self.cells_data
+            ), "inconsistent cells and cells_data lists!"
+            self.last_cell_updated = (
+                index if index is not None else (len(self.cells) - 1)
+            )
         return self.last_cell_updated
-
 
     def mutate(self, input: np.ndarray) -> np.ndarray:
         return self.executor.mutate_input(input, self.rng)
 
-
-    def test_policy(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    test_budget: int,
-                    init_budget: int,
-                    results_fp: str,
-                    disable_pbar: bool = False):
+    def test_policy(
+        self,
+        model: BaseAlgorithm,
+        env_seeds: List[int],
+        test_budget: int,
+        init_budget: int,
+        results_fp: str,
+        disable_pbar: bool = False,
+    ):
         """
         Parameters
         ----------
@@ -232,7 +277,11 @@ class Framework():
         self.executor.seeds = env_seeds
 
         if os.path.isdir(results_fp):
-            filepath = f"{results_fp}{self.creation_time}" if results_fp.endswith("/") else f"{results_fp}/{self.creation_time}"
+            filepath = (
+                f"{results_fp}{self.creation_time}"
+                if results_fp.endswith("/")
+                else f"{results_fp}/{self.creation_time}"
+            )
         else:
             filepath = results_fp
 
@@ -250,10 +299,11 @@ class Framework():
             for seed in env_seeds
         ]
 
-
         time_budget = min(12, test_budget) * 3600
         executions_budget = test_budget - init_budget if test_budget > 12 else 10000
-        print(f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.")
+        print(
+            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+        )
 
         inputs: List[np.ndarray] = []
         behaviors = []
@@ -268,8 +318,10 @@ class Framework():
             input: np.ndarray = self.executor.generate_input(self.rng)
 
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
-                input, model, n=n, deterministic=True
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
+                self.executor.execute_stochastic_policy(
+                    input, model, n=n, deterministic=True
+                )
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
@@ -287,8 +339,10 @@ class Framework():
 
         df = pd.read_csv("measures.csv")
         model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name==model_name]
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
+        df = df.loc[df.model_name == model_name]
+        self.xedges, self.yedges = get_bin_edges(
+            df, measures=self.descriptors, num_bins=self.granularity
+        )
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -296,13 +350,22 @@ class Framework():
         for i in range(init_budget):
             behavior = behaviors[i]
             cell = compute_cell(
-                behavior[self.descriptor_indices],
-                self.xedges, self.yedges).tolist()
-            mutated_input_index = self.update_cell(cell, inputs[i], acc_rewards[i], failure_probs[i], behavior)
-            print(f"episode_reward: {acc_rewards[i]}, failure_prob: {failure_probs[i]}, cell_selected_index: -1, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
-            np.savetxt(inputs_buffer, inputs[i].reshape(1, -1), fmt="%1.0f", delimiter=",")
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()
+            mutated_input_index = self.update_cell(
+                cell, inputs[i], acc_rewards[i], failure_probs[i], behavior
+            )
+            print(
+                f"episode_reward: {acc_rewards[i]}, failure_prob: {failure_probs[i]}, cell_selected_index: -1, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
+                file=logs_buffer,
+            )
+            np.savetxt(
+                inputs_buffer, inputs[i].reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            np.savetxt(
+                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
             for fs_buffer, fs in zip(final_states_buffers, final_states[i]):
                 np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
             for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors[i]):
@@ -313,28 +376,43 @@ class Framework():
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
+        while (current_time - start_time < time_budget) and (
+            nb_executions < executions_budget
+        ):
             cell_index = self.select_cell()
             self.last_cell_selected = cell_index
             input = self.select_input(cell_index)
 
             mutated_input = self.mutate(input)
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
-                mutated_input, model, n=n, deterministic=True
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
+                self.executor.execute_stochastic_policy(
+                    mutated_input, model, n=n, deterministic=True
+                )
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
 
             behavior = np.array([measures[k] for k in self.features])
 
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
+            cell = compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()
 
-            mutated_input_index = self.update_cell(cell, mutated_input, episode_reward, failure_prob, behavior)
-            print(f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
-            np.savetxt(inputs_buffer, mutated_input.reshape(1, -1), fmt="%1.0f", delimiter=",")
+            mutated_input_index = self.update_cell(
+                cell, mutated_input, episode_reward, failure_prob, behavior
+            )
+            print(
+                f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: {cell_index}, cell_updated_index: {mutated_input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
+                file=logs_buffer,
+            )
+            np.savetxt(
+                inputs_buffer, mutated_input.reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            np.savetxt(
+                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
 
             for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
                 np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
@@ -360,12 +438,14 @@ class Framework():
             buffer.close()
         self.save_state(filepath)
 
-
-    def random_testing(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    test_budget: int,
-                    results_fp: str,
-                    disable_pbar: bool = False):
+    def random_testing(
+        self,
+        model: BaseAlgorithm,
+        env_seeds: List[int],
+        test_budget: int,
+        results_fp: str,
+        disable_pbar: bool = False,
+    ):
         """Random testing loop baseline."""
         self.test_budget = test_budget
         self.config["test_budget"] = self.test_budget
@@ -373,9 +453,12 @@ class Framework():
         n = len(env_seeds)
         self.executor.seeds = env_seeds
 
-
         if os.path.isdir(results_fp):
-            filepath = f"{results_fp}{self.creation_time}" if results_fp.endswith("/") else f"{results_fp}/{self.creation_time}"
+            filepath = (
+                f"{results_fp}{self.creation_time}"
+                if results_fp.endswith("/")
+                else f"{results_fp}/{self.creation_time}"
+            )
         else:
             filepath = results_fp
 
@@ -393,15 +476,18 @@ class Framework():
             for seed in env_seeds
         ]
 
-
         time_budget = min(12, test_budget) * 3600
         executions_budget = test_budget if test_budget > 12 else 10000
-        print(f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions.")
+        print(
+            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+        )
 
         df = pd.read_csv("measures.csv")
         model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name==model_name]
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
+        df = df.loc[df.model_name == model_name]
+        self.xedges, self.yedges = get_bin_edges(
+            df, measures=self.descriptors, num_bins=self.granularity
+        )
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -413,22 +499,35 @@ class Framework():
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (nb_executions < executions_budget):
+        while (current_time - start_time < time_budget) and (
+            nb_executions < executions_budget
+        ):
             input: np.ndarray = self.executor.generate_input(self.rng)
             t0 = time.time()
-            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
-                input, model, n=n, deterministic=True
+            episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
+                self.executor.execute_stochastic_policy(
+                    input, model, n=n, deterministic=True
+                )
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
             behavior = np.array([measures[k] for k in self.features])
-            cell = compute_cell(behavior[self.descriptor_indices], self.xedges, self.yedges).tolist()
+            cell = compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()
 
-            input_index = self.update_cell(cell, input, episode_reward, failure_prob, behavior)
-            print(f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}", file=logs_buffer)
+            input_index = self.update_cell(
+                cell, input, episode_reward, failure_prob, behavior
+            )
+            print(
+                f"episode_reward: {episode_reward}, failure_prob: {failure_prob}, cell_selected_index: -1, cell_updated_index: {input_index}, nb_cells: {len(self.cells)}, execution_time: {t1 - t0}",
+                file=logs_buffer,
+            )
             np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            np.savetxt(
+                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
 
             for fs_buffer, fs in zip(final_states_buffers, final_obs_list):
                 np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
@@ -454,15 +553,17 @@ class Framework():
             buffer.close()
         self.save_state(filepath)
 
-
-    def novelty_search(self, model: BaseAlgorithm,
-                    env_seeds: List[int],
-                    pop_size: int,
-                    nb_iterations: int,
-                    k: int,
-                    nov_threshold: float,
-                    results_fp: str,
-                    disable_pbar: bool = False):
+    def novelty_search(
+        self,
+        model: BaseAlgorithm,
+        env_seeds: List[int],
+        pop_size: int,
+        nb_iterations: int,
+        k: int,
+        nov_threshold: float,
+        results_fp: str,
+        disable_pbar: bool = False,
+    ):
         """Does not use cached data anymore."""
 
         self.config["pop_size"] = pop_size
@@ -476,7 +577,11 @@ class Framework():
         self.executor.seeds = env_seeds
 
         if os.path.isdir(results_fp):
-            filepath = f"{results_fp}{self.creation_time}" if results_fp.endswith("/") else f"{results_fp}/{self.creation_time}"
+            filepath = (
+                f"{results_fp}{self.creation_time}"
+                if results_fp.endswith("/")
+                else f"{results_fp}/{self.creation_time}"
+            )
         else:
             filepath = results_fp
 
@@ -497,27 +602,39 @@ class Framework():
 
         df = pd.read_csv("measures.csv")
         model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name==model_name]
-        self.xedges, self.yedges = get_bin_edges(df, measures=self.descriptors, num_bins=self.granularity)
+        df = df.loc[df.model_name == model_name]
+        self.xedges, self.yedges = get_bin_edges(
+            df, measures=self.descriptors, num_bins=self.granularity
+        )
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
 
         # helpers 1: recording the executions during each iteration
         def record(
-                input: np.ndarray, reward: float, failure_prob: float,
-                behavior: np.ndarray,
-                final_states_list: List[np.ndarray], expert_behaviors_list: List[np.ndarray]
-                ) -> None:
+            input: np.ndarray,
+            reward: float,
+            failure_prob: float,
+            behavior: np.ndarray,
+            final_states_list: List[np.ndarray],
+            expert_behaviors_list: List[np.ndarray],
+        ) -> None:
             cell = compute_cell(
-                behavior[self.descriptor_indices],
-                self.xedges, self.yedges).tolist()
-            updated_cell_index = self.update_cell(cell, input, reward, failure_prob, behavior)
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()
+            updated_cell_index = self.update_cell(
+                cell, input, reward, failure_prob, behavior
+            )
             # parent"s cell is not logged
-            print(f"episode_reward: {reward}, failure_prob: {failure_prob}, cell_updated_index: {updated_cell_index}, nb_cells: {len(self.cells)}", file=logs_buffer)
+            print(
+                f"episode_reward: {reward}, failure_prob: {failure_prob}, cell_updated_index: {updated_cell_index}, nb_cells: {len(self.cells)}",
+                file=logs_buffer,
+            )
             np.savetxt(inputs_buffer, input.reshape(1, -1), fmt="%1.0f", delimiter=",")
             np.savetxt(behaviors_buffer, behavior.reshape(1, -1), delimiter=",")
-            np.savetxt(cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=",")
+            np.savetxt(
+                cells_buffer, np.array(cell).reshape(1, -1), fmt="%1.0f", delimiter=","
+            )
             for fs_buffer, fs in zip(final_states_buffers, final_states_list):
                 np.savetxt(fs_buffer, fs.reshape(1, -1), delimiter=",")
             for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors_list):
@@ -527,13 +644,16 @@ class Framework():
         def evaluate(individuals: np.ndarray) -> np.ndarray:
             behaviors = []
             for ind in individuals:
-                r, fp, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
-                    ind, model, n=n, deterministic=True
+                r, fp, final_obs_list, behaviors_list, measures = (
+                    self.executor.execute_stochastic_policy(
+                        ind, model, n=n, deterministic=True
+                    )
                 )
                 b = np.array([measures[k] for k in self.features])
                 record(ind, r, fp, b, final_obs_list, behaviors_list)
                 behaviors.append(b)
             return np.array(behaviors)
+
         # helper 3: mutates a batch of individuals
         def mutate(inputs: np.ndarray):
             mutants = [self.mutate(input) for input in inputs]
@@ -544,13 +664,20 @@ class Framework():
         nov_scores_buffer = open(f"{filepath}_nov_scores.txt", "w", buffering=1)
         # initial population and novelty archive
         from novelty_search import NoveltyArchive
+
         pop = self.executor.generate_inputs(self.rng, pop_size)
         pop_behaviors = evaluate(pop)
         nov_archive = NoveltyArchive(pop_behaviors, k, nov_threshold)
         pop_nov_scores = nov_archive.score(pop_behaviors)
-        [np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=",") for s in pop_nov_scores]
+        [
+            np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=",")
+            for s in pop_nov_scores
+        ]
         # novelty search loop
-        print(f"iteration: 0, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}", file=ns_logs_buffer)
+        print(
+            f"iteration: 0, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}",
+            file=ns_logs_buffer,
+        )
         for i in tqdm.tqdm(range(1, nb_iterations), disable=disable_pbar):
             # 1. generates offspring
             offspring = mutate(pop)
@@ -568,7 +695,7 @@ class Framework():
             _updated, _offspring_indices = nov_archive.update3(offspring_behaviors)
 
             # 4. updates the population and their data
-            mask = (joined_scores >= median_score)
+            mask = joined_scores >= median_score
 
             pop = joined_pop[mask].copy()
             pop_behaviors = np.vstack([pop_behaviors, offspring_behaviors])[mask]
@@ -581,8 +708,14 @@ class Framework():
             # assert len(pop) == pop_size, (len(pop), pop.shape)
             # assert len(pop_behaviors) == pop_size, (len(pop), pop.shape)
             # assert len(pop_nov_scores) == pop_size, (len(pop), pop.shape)
-            [np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=",") for s in pop_nov_scores]
-            print(f"iteration: {i}, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}", file=ns_logs_buffer)
+            [
+                np.savetxt(nov_scores_buffer, s.reshape(1, -1), delimiter=",")
+                for s in pop_nov_scores
+            ]
+            print(
+                f"iteration: {i}, archive_size: {nov_archive.size()}, archive_sparseness: {nov_archive.archive_sparseness():0.5f}",
+                file=ns_logs_buffer,
+            )
 
         behaviors_buffer.close()
         inputs_buffer.close()
@@ -593,13 +726,19 @@ class Framework():
         self.save_state(filepath)
 
 
-#TODO: this version can actually only keep the best performing input per cell (since all execution data is recorded during testing)
+# TODO: this version can actually only keep the best performing input per cell (since all execution data is recorded during testing)
 class MAPElitesFramework(Framework):
-    def __init__(self, rand_seed: int, cell_granularity: int, features: List[str], descriptors: Tuple[str, str], **kwargs) -> None:
+    def __init__(
+        self,
+        rand_seed: int,
+        cell_granularity: int,
+        features: List[str],
+        descriptors: Tuple[str, str],
+        **kwargs,
+    ) -> None:
         if kwargs.get("name") is None:
             kwargs["name"] = "MAP-Elites"
         super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
-
 
     # def select_input(self, index: int):
     #     scores = list(map(lambda x: x[1], self.cells_data[index]))
@@ -610,7 +749,7 @@ class MAPElitesFramework(Framework):
     def select_input(self, index: int):
         """Selection based on the failure probability if they are not all equal to 0; worst accumulated reward otherwise."""
         failure_probs = list(map(lambda x: x[2], self.cells_data[index]))
-        if max(failure_probs) > 0.:
+        if max(failure_probs) > 0.0:
             # the best performing input is one whose score is the maximum, since it corresponds to the failure probability.
             best_performer_index = int(np.argmax(failure_probs))
         else:
@@ -621,8 +760,9 @@ class MAPElitesFramework(Framework):
 
 
 if __name__ == "__main__":
-    from executor import HighwayTestManager
     from pathlib import Path
+
+    from executor import HighwayTestManager
 
     torch.set_num_threads(1)
     main_seed = 2021
@@ -630,48 +770,43 @@ if __name__ == "__main__":
     model = HighwayTestManager.load_policy(dqnagent_path)
 
     # experimental parameters
-    test_budget = 1000
-    init_budget = 100
+    test_budget = 5000
+    init_budget = 1000
     cell_granularity = 50
 
-    # population_size, nb_iterations = 100, 50
-    population_size, nb_iterations = 100, 10
+    population_size, nb_iterations = 100, 50
     k = 3
     novelty_threshold = 0.005
 
-    descriptors = ["action_entropy", "length_spread"]
+    descriptors = ["action_entropy_mean", "length_spread"]
 
-    results_fp = Path("results_expert/hw")
+    results_fp = Path("results_new/hw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
     (results_fp / "ns").mkdir(parents=True, exist_ok=True)
-    (results_fp / "rt").mkdir(parents=True, exist_ok=True)
+    # (results_fp / "rt").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
 
-        f = Framework(
-            seed,
-            cell_granularity,
-            features=FEATURES,
-            descriptors=descriptors,
-            name="Random Testing"
-        )
-        f.random_testing(
-            model, ENV_SEEDS,
-            test_budget, str(results_fp / "rt")
-        )
+        # f = Framework(
+        #     seed,
+        #     cell_granularity,
+        #     features=FEATURES,
+        #     descriptors=descriptors,
+        #     name="Random Testing",
+        # )
+        # f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
 
         f = MAPElitesFramework(
             seed,
             cell_granularity,
             features=FEATURES,
             descriptors=descriptors,
-            name="MAP-Elites"
+            name="MAP-Elites",
         )
         f.test_policy(
-            model, ENV_SEEDS, test_budget,
-            init_budget, str(results_fp / "qd")
+            model, ENV_SEEDS, test_budget, init_budget, str(results_fp / "qd")
         )
 
         f = Framework(
@@ -679,7 +814,7 @@ if __name__ == "__main__":
             cell_granularity,
             features=FEATURES,
             descriptors=descriptors,
-            name=f"Novelty Search"
+            name=f"Novelty Search",
         )
         f.novelty_search(
             model,
@@ -688,5 +823,5 @@ if __name__ == "__main__":
             nb_iterations,
             k,
             novelty_threshold,
-            str(results_fp / "ns")
+            str(results_fp / "ns"),
         )
