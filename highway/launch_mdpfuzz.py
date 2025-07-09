@@ -100,7 +100,7 @@ class MDPFuzzExecutor(Executor):
         )
 
         exec_time = time.time() - t0
-        behavior = np.array(list(measures.values()))
+        behavior = np.array([measures[k] for k in self.features])
         self.log_execution(
             input,
             mean_acc_reward,
@@ -150,7 +150,7 @@ def accumulate_failures(failures: np.ndarray) -> np.ndarray:
 if __name__ == "__main__":
     from pathlib import Path
 
-    results_fp = Path("results_new/hw/mdpfuzz")
+    results_fp = Path("results_test/hw/mdpfuzz")
     results_fp.mkdir(parents=True, exist_ok=True)
 
     import sys

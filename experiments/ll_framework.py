@@ -168,7 +168,7 @@ class LLExecutor(Executor):
         )
 
         exec_time = time.time() - t0
-        behavior = np.array(list(measures.values()))
+        behavior = np.array([measures[k] for k in self.features])
         self.log_execution(
             input,
             mean_acc_reward,
@@ -224,12 +224,12 @@ if __name__ == "__main__":
     ]
     descriptors = descriptor_sets[0]
 
-    results_fp = Path("results_new/ll")
+    results_fp = Path("results_test/ll")
     results_fp.mkdir(parents=True, exist_ok=True)
-    (results_fp / "qd").mkdir(parents=True, exist_ok=True)
-    (results_fp / "ns").mkdir(parents=True, exist_ok=True)
+    # (results_fp / "qd").mkdir(parents=True, exist_ok=True)
+    # (results_fp / "ns").mkdir(parents=True, exist_ok=True)
     # (results_fp / "rt").mkdir(parents=True, exist_ok=True)
-    # (results_fp / "mdpfuzz").mkdir(parents=True, exist_ok=True)
+    (results_fp / "mdpfuzz").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
@@ -242,43 +242,43 @@ if __name__ == "__main__":
         # )
         # f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
 
-        f = LLFramework(
-            seed,
-            cell_granularity,
-            features=features,
-            descriptors=descriptors,
-        )
-        f.test_policy(
-            model, ENV_SEEDS, test_budget, init_budget, str(results_fp / "qd")
-        )
-
-        f = LLFramework(
-            seed,
-            cell_granularity,
-            features=features,
-            descriptors=descriptors,
-        )
-        f.novelty_search(
-            model,
-            ENV_SEEDS,
-            population_size,
-            nb_iterations,
-            k,
-            novelty_threshold,
-            str(results_fp / "ns"),
-        )
-
-        # executor = LLExecutor(seed, ENV_SEEDS, log_path=str(results_fp / "mdpfuzz"))
-        # fuzzer_logs_path = executor.fp + "_fuzzer"
-        # fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
-        # fuzzer.fuzzing_no_coverage(
-        #     n=init_budget,
-        #     test_budget=test_budget,  # 2*n will be removed since we assume that test_budget is the TOTAL budget
-        #     policy=model,
-        #     saving_path=fuzzer_logs_path,
-        #     local_sensitivity=True,  # don"t re-run for computing the sensitivity
-        #     exp_name="Lunar Lander",
-        #     light_pool=True,  # don"t log the inputs
-        #     save_logs_only=True,  # don"t save evaluated inputs
+        # f = LLFramework(
+        #     seed,
+        #     cell_granularity,
+        #     features=features,
+        #     descriptors=descriptors,
         # )
-        # executor.clean()
+        # f.test_policy(
+        #     model, ENV_SEEDS, test_budget, init_budget, str(results_fp / "qd")
+        # )
+
+        # f = LLFramework(
+        #     seed,
+        #     cell_granularity,
+        #     features=features,
+        #     descriptors=descriptors,
+        # )
+        # f.novelty_search(
+        #     model,
+        #     ENV_SEEDS,
+        #     population_size,
+        #     nb_iterations,
+        #     k,
+        #     novelty_threshold,
+        #     str(results_fp / "ns"),
+        # )
+
+        executor = LLExecutor(seed, ENV_SEEDS, log_path=str(results_fp / "mdpfuzz"))
+        fuzzer_logs_path = executor.fp + "_fuzzer"
+        fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
+        fuzzer.fuzzing_no_coverage(
+            n=init_budget,
+            test_budget=test_budget,  # 2*n will be removed since we assume that test_budget is the TOTAL budget
+            policy=model,
+            saving_path=fuzzer_logs_path,
+            local_sensitivity=True,  # don"t re-run for computing the sensitivity
+            exp_name="Lunar Lander",
+            light_pool=True,  # don"t log the inputs
+            save_logs_only=True,  # don"t save evaluated inputs
+        )
+        executor.clean()
