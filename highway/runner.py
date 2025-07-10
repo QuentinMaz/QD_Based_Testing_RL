@@ -63,7 +63,7 @@ if __name__ == "__main__":
     init_budget = 1000
     cell_granularity = 50
 
-    population_size, nb_iterations = 10, 5
+    population_size, nb_iterations = 100, 50
     k = 3
     novelty_threshold = 0.005
 
