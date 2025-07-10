@@ -46,7 +46,6 @@ class Framework:
         descriptors : Tuple[str, str]
             Names of the two measures in `features` (x and y when plotting) for the generic behavior space and grid.
         """
-        self.version = "random"
         self.rand_seed = rand_seed
         self.rng: np.random.Generator = np.random.default_rng(rand_seed)
         self.creation_time = time.time()
@@ -86,13 +85,7 @@ class Framework:
             "use_case": "Highway",
         }
 
-        # kwargs (name to include in the experimental configuration etc.)
-        self.name = kwargs.get("name")
-        if self.name is not None:
-            self.config["name"] = self.name
-        else:
-            self.config["name"] = self.version
-
+        self.name = None
         self.executor = HighwayTestManager()
 
     def save_configuration(self, filepath: str):
@@ -100,6 +93,8 @@ class Framework:
         Saves the configuration of the object.
         This lets us know what BS has been used, which can be handy for organizing the results and to compare to MDPFuzz.
         """
+        if self.name is not None:
+            self.config["name"] = self.name
         if not filepath.endswith("config"):
             filepath += "_config"
         f = open(f"{filepath}.json", "w")
@@ -205,11 +200,16 @@ class Framework:
         return len(df)
 
     def select_input(self, index: int):
-        """Samples from the indexed cell the next input."""
-        # inputs = list(map(lambda x: x[0], self.cells_data[index]))
-        # print(f"[GET INPUT LOG] NB INPUTS FOUND IN CELL {index}: {len(inputs)}.")
-        input_index: int = self.rng.integers(0, len(self.cells_data[index]))
-        return self.cells_data[index][input_index][0]
+        """Selection based on the failure probability if they are not all equal to 0; worst accumulated reward otherwise."""
+        failure_probs = list(map(lambda x: x[2], self.cells_data[index]))
+        if max(failure_probs) > 0.0:
+            # the best performing input is one whose score is the maximum, since it corresponds to the failure probability.
+            best_performer_index = int(np.argmax(failure_probs))
+        else:
+            print("No failure triggering input found in cell index {}.".format(index))
+            scores = list(map(lambda x: x[1], self.cells_data[index]))
+            best_performer_index = int(np.argmin(scores))
+        return self.cells_data[index][best_performer_index][0]
 
     def select_cell(self):
         """Selects the cell for the next search iteration."""
@@ -271,6 +271,7 @@ class Framework:
         self.config["test_budget"] = self.test_budget
         self.init_budget = init_budget
         self.config["init_budget"] = self.init_budget
+        self.name = "MAP-Elites"
 
         self.config["env_seeds"] = env_seeds
         n = len(env_seeds)
@@ -452,6 +453,7 @@ class Framework:
         self.config["env_seeds"] = env_seeds
         n = len(env_seeds)
         self.executor.seeds = env_seeds
+        self.name = "Random Testing"
 
         if os.path.isdir(results_fp):
             filepath = (
@@ -575,6 +577,7 @@ class Framework:
 
         n = len(env_seeds)
         self.executor.seeds = env_seeds
+        self.name = "Novelty Search"
 
         if os.path.isdir(results_fp):
             filepath = (
@@ -726,39 +729,6 @@ class Framework:
         self.save_state(filepath)
 
 
-# TODO: this version can actually only keep the best performing input per cell (since all execution data is recorded during testing)
-class MAPElitesFramework(Framework):
-    def __init__(
-        self,
-        rand_seed: int,
-        cell_granularity: int,
-        features: List[str],
-        descriptors: Tuple[str, str],
-        **kwargs,
-    ) -> None:
-        if kwargs.get("name") is None:
-            kwargs["name"] = "MAP-Elites"
-        super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
-
-    # def select_input(self, index: int):
-    #     scores = list(map(lambda x: x[1], self.cells_data[index]))
-    #     # the best performing input is one whose score is the minimum, since it corresponds to the accumulated reward.
-    #     best_performer_index = int(np.argmin(scores))
-    #     return self.cells_data[index][best_performer_index][0]
-
-    def select_input(self, index: int):
-        """Selection based on the failure probability if they are not all equal to 0; worst accumulated reward otherwise."""
-        failure_probs = list(map(lambda x: x[2], self.cells_data[index]))
-        if max(failure_probs) > 0.0:
-            # the best performing input is one whose score is the maximum, since it corresponds to the failure probability.
-            best_performer_index = int(np.argmax(failure_probs))
-        else:
-            print("No failure triggering input found in cell index {}.".format(index))
-            scores = list(map(lambda x: x[1], self.cells_data[index]))
-            best_performer_index = int(np.argmin(scores))
-        return self.cells_data[index][best_performer_index][0]
-
-
 if __name__ == "__main__":
     from pathlib import Path
 
@@ -798,7 +768,7 @@ if __name__ == "__main__":
         # )
         # f.random_testing(model, ENV_SEEDS, test_budget, str(results_fp / "rt"))
 
-        f = MAPElitesFramework(
+        f = Framework(
             seed,
             cell_granularity,
             features=FEATURES,
