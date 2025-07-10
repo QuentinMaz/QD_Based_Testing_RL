@@ -132,15 +132,21 @@ def get_histogram(
 
 
 def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.ndarray:
-    if use_case not in ["Bipedal Walker", "Lunar Lander"]:
+    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander"]:
         raise ValueError()
 
     if use_case == "Bipedal Walker":
         edges = np.load(f"grid/bw/0_300_edges.npy")
-        return edges[descriptors]
+        if descriptors is not None:
+            return edges[descriptors]
+        else:
+            return edges
+
+    if use_case == "Highway":
+        return np.load(f"grid/hw/edges.npy")
 
     else:
-        np.load(f"grid/ll/0_1000_xedges.npy"), np.load(f"grid/ll/0_1000_yedges.npy")
+        return np.load(f"grid/ll/0_1000_xedges.npy"), np.load(f"grid/ll/0_1000_yedges.npy")
 
 
 def get_measures_edges(
@@ -294,7 +300,10 @@ def read_results_from_folder(results_folder: str, **kwargs) -> List[Dict]:
         - "is_ns": the dictionaries have particular NS logs at the key `ns_logs`.
         - "include_expert_behaviors": the dictionaries have the latter at the key `expert_behaviors`.
     """
-    assert os.path.isdir(results_folder)
+    if not os.path.isdir(results_folder):
+        warnings.warn(f"Folder \"{results_folder}\" not found.", RuntimeWarning)
+        return []
+
     if not results_folder.endswith("/"):
         results_folder += "/"
 

@@ -93,7 +93,7 @@ class Framework(ABC):
         self.input_fmt = kwargs.get("input_fmt", "%.18e")  # type: str
 
         # attribute set when a testing method is used
-        self.name = None
+        self.name = kwargs.get("name", None)  # type: str
         self.behaviors_buffer = None  # type: io.TextIOWrapper
         self.inputs_buffer = None  # type: io.TextIOWrapper
         self.cells_buffer = None  # type: io.TextIOWrapper
