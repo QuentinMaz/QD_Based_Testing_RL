@@ -10,11 +10,13 @@ from bw_framework import EXPERT_INDICES
 import matplotlib
 from matplotlib import pyplot as plt
 from sklearn.neighbors import NearestNeighbors
+from collections.abc import Iterable
 
 from common import (
     MEAS_INDICES,
     MEAS_STR_INDICES,
     MEASURES,
+    bin_observation,
     compute_cell_filling,
     get_expert_bin_edges,
     get_measures_edges,
@@ -102,6 +104,24 @@ def filter_data(
     return results
 
 
+def accumulate(
+    data: List[np.ndarray],
+) -> List[np.ndarray]:
+    acc_list = []
+    for arr in data:
+        cpt = 0
+        acc = []
+        if arr.dtype != bool:
+            raise ValueError("Input list expected to be of boolean type.")
+
+        for x in arr:
+            cpt += int(x)
+            acc.append(cpt)
+        acc_list.append(np.array(acc))
+
+    return acc_list
+
+
 def accumulate_uniques(
     data: List[np.ndarray],
 ) -> List[np.ndarray]:
@@ -112,8 +132,15 @@ def accumulate_uniques(
     for arr in data:
         seen = set()
         acc = []
+        if len(arr) == 0:
+            raise ValueError("Empty list in `data`.")
 
-        for point in map(tuple, arr):
+        if isinstance(arr[0], Iterable):
+           it =  map(tuple, arr)
+        else:
+            it = arr
+
+        for point in it:
             seen.add(point)
             acc.append(len(seen))
 
@@ -229,7 +256,7 @@ def plot_ns_analysis(ns_res: List[Dict]):
             y, perc_25, perc_75, x = compute_statistics(sizes)
             axs[u][0].plot(x, y, color=color, label=label)
             axs[u][0].fill_between(
-                x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color
+                x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
             )
 
             inputs = [d["inputs"] for d in sub_results]
@@ -240,7 +267,7 @@ def plot_ns_analysis(ns_res: List[Dict]):
             label = method_name
             axs[u][1].plot(x, y, color=color, label=label)
             axs[u][1].fill_between(
-                x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color
+                x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
             )
     legend = axs[-1][0].legend(title="Testing Methodology")
     legend_frame = legend.get_frame()
@@ -282,7 +309,7 @@ def compute_evolution_fault_triggering_inputs(
 
 
 def compute_rq1_results(
-    data: List[Dict],
+    data: List[Dict], only_uniques: bool = True
 ) -> List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]:
     use_cases: List[str] = np.unique([d["config"]["use_case"] for d in data]).tolist()
     methods_names: List[str] = np.unique([d["config"]["name"] for d in data]).tolist()
@@ -318,6 +345,7 @@ def compute_rq1_results(
 
             results[method_name] = compute_statistics(
                 compute_evolution_fault_triggering_inputs(inputs, oracles)
+                if only_uniques else accumulate(oracles)
             )
 
         results_list.append(results)
@@ -350,14 +378,18 @@ def plot_rq1_results(
         for name, data in data.items():
             color = colors_dict[name]
             label = name
+            if "MAE+MS" in label:
+                linestyle = "dotted"
+            else:
+                linestyle = "solid"
             if isinstance(data, np.ndarray):
-                ax.plot(np.arange(len(data)), data, color=color, label=label)
+                ax.plot(np.arange(len(data)), data, color=color, label=label, linestyle=linestyle, linewidth=2)
             else:
                 y, perc_25, perc_75 = data
                 x = np.arange(len(y))
-                ax.plot(x, y, color=color, label=label)
+                ax.plot(x, y, color=color, label=label, linestyle=linestyle, linewidth=2)
                 ax.fill_between(
-                    x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color
+                    x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
                 )
 
     ax = axs[np.argmax([len(d.keys()) for d in results])]
@@ -589,6 +621,98 @@ def compute_mean_knn(results: List[Dict], knn: int = 3, computation_steps: int =
     return use_cases, results_dicts, fresults_dicts, x_starts_dicts, colors_dict
 
 
+def load_obs_space_edges(use_case: str, num_bins: int = 20) -> np.ndarray:
+    if use_case.capitalize().startswith("B"):
+        return np.load(f"grid/bw/obs_space_edges_{num_bins}.npy")
+
+    elif use_case.capitalize().startswith("L"):
+        return np.load(f"grid/ll/obs_space_edges_{num_bins}.npy")
+
+    elif use_case.capitalize().startswith("H"):
+        return np.load(f"grid/hw/obs_space_edges_{num_bins}.npy")
+
+    else:
+        raise ValueError(f"No edges available for use case {use_case}.")
+
+def compute_obs_coverage(results: List[Dict]):
+    use_cases: List[str] = np.unique(
+        [d["config"]["use_case"] for d in results]
+    ).tolist()
+    methods_names: List[str] = np.unique(
+        [d["config"]["name"] for d in results]
+    ).tolist()
+
+    def compute_statistics(data) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        if not isinstance(data, np.ndarray):
+            data: np.ndarray = np.array(data)
+        y = np.median(data, axis=0)
+        perc_25 = np.percentile(data, 25, axis=0)
+        perc_75 = np.percentile(data, 75, axis=0)
+        return y, perc_25, perc_75
+
+    # re-aranges the results per use_case
+    use_cases_dict: Dict[str, Dict[str, List]] = {}
+    for case in use_cases:
+        use_cases_dict[case] = {}
+        for name in methods_names:
+            # case's results
+            sub_results = [
+                d
+                for d in results
+                if (d["config"]["use_case"].startswith(case))
+                and (d["config"]["name"] == name)
+            ]
+            use_cases_dict[case].update({name: sub_results})
+
+    # dict of (the means of) the medians and quantiles for all methodologies per use-case
+    results_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
+    # similar data but with distinct fault-triggering final states
+    fresults_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
+
+    for case in use_cases:
+        # results of all methodologies
+        method_result_dict = {}
+        method_fresult_dict = {}
+        # edges for the use case
+        edges = load_obs_space_edges(case, num_bins=10)
+        for method_name, sub_results in use_cases_dict[case].items():
+            if len(sub_results) == 0:
+                print(
+                    f"No result found for use-case {case} and methodology {method_name}"
+                )
+                continue
+
+            fs_list = []
+            oracles_list = []
+            for d in sub_results:
+                fs_list.extend(d["final_states"])
+                # copies the oracle flags for each list
+                for _ in range(len(d["final_states"])):
+                    oracles_list.append(d["logs"]["oracle"].to_numpy().copy())
+
+            assert len(fs_list) == len(oracles_list)
+            print(f"For ({case}, {method_name}), found a total of {len(fs_list)} final states lists.")
+
+            # bin the final states
+            cells_arr = np.apply_along_axis(
+                lambda x: bin_observation(x, edges),
+                axis=-1,
+                arr=fs_list
+            )
+            obs_coverage = accumulate_uniques(cells_arr)
+            median, q1, q3 = compute_statistics(obs_coverage)
+            method_result_dict[method_name] = (median, q1, q3)
+
+            # accumulates the number of unique cells flagged as faulty fault-triggering
+            fobs_coverage = compute_evolution_fault_triggering_inputs(cells_arr, oracles_list)
+            fmedian, fq1, fq3 = compute_statistics(fobs_coverage)
+            method_fresult_dict[method_name] = (fmedian, fq1, fq3)
+
+        results_dicts.append(method_result_dict)
+        fresults_dicts.append(method_fresult_dict)
+    return use_cases, results_dicts, fresults_dicts
+
+
 def compute_relative_performance(
     results: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]],
     name_ref: str = "Random Testing",
@@ -607,13 +731,27 @@ def compute_relative_performance(
     return relative_results
 
 
-def plot_rq2_ebs_results(
+def legend_axis(ax):
+    legend = ax.legend(
+        prop={"size": 10},
+        labelspacing=1.1,
+        handletextpad=1.05,
+        borderpad=1.05,
+        borderaxespad=1.0,
+    )
+    legend_frame = legend.get_frame()
+    legend_frame.set_facecolor("0.9")
+    legend_frame.set_edgecolor("0.9")
+    return ax
+
+
+def plot_coverage_results(
     use_cases: List[str],
     colors_dict: Dict[str, Tuple],
-    bs_results: List[Dict[str, Tuple]],
-    faulty_bs_results: List[Dict[str, np.ndarray]],
+    cov_results: List[Dict[str, Tuple]],
+    faulty_cov_results: List[Dict[str, np.ndarray]],
 ):
-    """Plots the behavior coverage results for RQ2."""
+    """Plots the coverage results for RQ2."""
 
     nb_use_cases = len(use_cases)
 
@@ -629,43 +767,60 @@ def plot_rq2_ebs_results(
     else:
         [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
 
-    axs[0][0].set_title("#Expert Behaviors", fontsize=TITLE_LABEL_FONTSIZE)
-    axs[0][1].set_title("#Faulty Expert Behaviors", fontsize=AXIS_LABEL_FONTSIZE)
     axs[-1][0].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
     axs[-1][1].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
 
     for u in range(nb_use_cases):
         case = use_cases[u]
         axs[u][0].set_ylabel(case, fontsize=AXIS_LABEL_FONTSIZE)
-        for name in bs_results[u].keys():
+        for name in cov_results[u].keys():
             color = colors_dict[name]
             label = name
+            if "MAE+MS" in label:
+                linestyle = "dotted"
+            else:
+                linestyle = "solid"
             # BS coverage (statistical)
             ax = axs[u][0]
-            y, perc_25, perc_75 = bs_results[u][name]
+            y, perc_25, perc_75 = cov_results[u][name]
             x = np.arange(len(y))
-            ax.plot(x, y, color=color, label=label)
-            ax.fill_between(x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color)
+            ax.plot(x, y, color=color, label=label, linestyle=linestyle, linewidth=2)
+            ax.fill_between(x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color)
             # Faulty BS coverage (statistical)
             ax = axs[u][1]
-            y, perc_25, perc_75 = faulty_bs_results[u][name]
+            y, perc_25, perc_75 = faulty_cov_results[u][name]
             x = np.arange(len(y))
-            ax.plot(x, y, color=color, label=label)
-            ax.fill_between(x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color)
+            ax.plot(x, y, color=color, label=label, linestyle=linestyle, linewidth=2)
+            ax.fill_between(x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color)
+
         # once every methodology's results is displayed, adds the legend
         ax = axs[u][-1]
-        legend = ax.legend(
-            prop={"size": 10},
-            labelspacing=1.1,
-            handletextpad=1.05,
-            borderpad=1.05,
-            borderaxespad=1.0,
-        )
-        legend_frame = legend.get_frame()
-        legend_frame.set_facecolor("0.9")
-        legend_frame.set_edgecolor("0.9")
+        ax = legend_axis(ax)
     fig.tight_layout()
     return (fig, axs)
+
+
+def plot_rq2_ebs_results(
+    use_cases: List[str],
+    colors_dict: Dict[str, Tuple],
+    ebs_results: List[Dict[str, Tuple]],
+    faulty_ebs_results: List[Dict[str, np.ndarray]],
+):
+    fig, axs = plot_coverage_results(use_cases, colors_dict, ebs_results, faulty_ebs_results)
+    axs[0][0].set_title("#Expert Behaviors", fontsize=TITLE_LABEL_FONTSIZE)
+    axs[0][1].set_title("#Faulty Expert Behaviors", fontsize=AXIS_LABEL_FONTSIZE)
+    return fig, axs
+
+def plot_rq2_fobs_results(
+    use_cases: List[str],
+    colors_dict: Dict[str, Tuple],
+    fobs_results: List[Dict[str, Tuple]],
+    faulty_fobs_results: List[Dict[str, np.ndarray]],
+):
+    fig, axs = plot_coverage_results(use_cases, colors_dict, fobs_results, faulty_fobs_results)
+    axs[0][0].set_title("#Final Obs Coverage", fontsize=TITLE_LABEL_FONTSIZE)
+    axs[0][1].set_title("#Faulty Final Obs Coverage", fontsize=AXIS_LABEL_FONTSIZE)
+    return fig, axs
 
 
 def plot_rq2_fs_results(
@@ -721,7 +876,7 @@ def plot_rq2_fs_results(
                     x,
                     perc_25[x_index:],
                     perc_75[x_index:],
-                    alpha=0.25,
+                    alpha=0.15,
                     linewidth=0,
                     color=color,
                 )
@@ -746,7 +901,7 @@ def plot_rq2_fs_results(
                     x,
                     perc_25[x_index:],
                     perc_75[x_index:],
-                    alpha=0.25,
+                    alpha=0.15,
                     linewidth=0,
                     color=color,
                 )
@@ -821,7 +976,7 @@ def plot_rq3_results(
                     y, perc_25, perc_75 = to_plot
                     ax.plot(x, y, color=color, label=label)
                     ax.fill_between(
-                        x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color
+                        x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
                     )
         ax = axs[r][-1]
         legend = ax.legend(
@@ -1093,7 +1248,7 @@ def plot_rq2_meas_results(
                 x = np.arange(len(y))
                 ax.plot(x, y, color=color, label=label)
                 ax.fill_between(
-                    x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color
+                    x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
                 )
                 ax.set_xlabel(x_axes[i])
                 ax.set_ylabel(y_axes[j])
@@ -1176,7 +1331,9 @@ def dump_results(dict_list: List[Dict[str, Iterable]], filenames: List[str]):
 
 def load_result(filepath: str):
     fp = f"{filepath}.json"
-    assert os.path.exists(fp)
+    if not os.path.exists(fp):
+        warnings.warn(f"File {fp} not found.", RuntimeWarning)
+        return {}
     try:
         with open(fp, "r") as f:
             d = json.load(f)
@@ -1216,12 +1373,7 @@ def load_results(
 ################################## MAIN ######################################
 
 
-# exec(open('result_analysis.py').read())
-if __name__ == "__main__":
-    torch.set_num_threads(1)
-
-    ####################### Raw data loading #######################
-
+def load_data():
     # LL
     ll_results = read_results_from_folder(
         "results_new/ll/qd/",
@@ -1260,7 +1412,6 @@ if __name__ == "__main__":
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
-
     # renames the QD-based methods w.r.t the descriptor pair used
     for d in ll_results + bw_results + hw_results:
         if d["config"]["name"] in ["MAP-Elites", "Novelty Search"]:
@@ -1268,17 +1419,26 @@ if __name__ == "__main__":
             suffix = "MAE+ML" if descriptors[-1].endswith("spread") else "MAE+MS"
             d["config"]["name"] += f" {suffix}"
 
-    first_results = ll_results + bw_results + hw_results
+    return bw_results + ll_results + hw_results
+
+
+# exec(open('result_analysis.py').read())
+if __name__ == "__main__":
+    torch.set_num_threads(1)
+
+    ####################### Raw data loading #######################
+
+    first_results = load_data()
 
     use_cases, method_names, colors_dict = color_data(first_results)
-    print(method_names, use_cases)
+    print(method_names, use_cases, len(first_results))
 
     ####################### Analysis computation #######################
 
     rq1_data = compute_rq1_results(first_results)
     ebs_cov, efbs_cov = compute_expert_behaviors_coverage(first_results)
     # stores the results of the analysis
-    folder = "data"
+    folder = "data_new"
     for case in use_cases:
         sub_folder = f"{folder}/{case}"
         if not os.path.exists(sub_folder):
@@ -1289,22 +1449,34 @@ if __name__ == "__main__":
     dump_results(efbs_cov, [f"{folder}/{case}/fbs_cov" for case in use_cases])
 
     # knn computation of the final states
-    computation_steps, k = 50, 3
-    use_cases, knn_results, fknn_results, _xstarts, colors_dict = compute_mean_knn(
-        first_results, knn=k, computation_steps=computation_steps
-    )
-    relative_knns = [
-        compute_relative_performance(results_dict) for results_dict in knn_results
-    ]
-    relative_fknns = [
-        compute_relative_performance(results_dict) for results_dict in fknn_results
-    ]
-    dump_results(knn_results, [f"{folder}/{case}/knn" for case in use_cases])
-    dump_results(fknn_results, [f"{folder}/{case}/fknn" for case in use_cases])
-    dump_results(relative_knns, [f"{folder}/{case}/knn_relative" for case in use_cases])
-    dump_results(
-        relative_fknns, [f"{folder}/{case}/fknn_relative" for case in use_cases]
-    )
+    # computation_steps, k = 50, 3
+    # for case, results in zip(use_cases, [bw_results, hw_results, ll_results]):
+    #     use_cases, knn_results, fknn_results, _xstarts, colors_dict = compute_mean_knn(
+    #         results, knn=k, computation_steps=computation_steps
+    #     )
+    #     dump_results(knn_results, [f"{folder}/{case}/knn"])
+    #     dump_results(fknn_results, [f"{folder}/{case}/fknn"])
+    #     print(case, "DONE.")
+
+    # relative_knns = [
+    #     compute_relative_performance(results_dict) for results_dict in knn_results
+    # ]
+    # relative_fknns = [
+    #     compute_relative_performance(results_dict) for results_dict in fknn_results
+    # ]
+    # dump_results(knn_results, [f"{folder}/{case}/knn" for case in use_cases])
+    # dump_results(fknn_results, [f"{folder}/{case}/fknn" for case in use_cases])
+    # dump_results(relative_knns, [f"{folder}/{case}/knn_relative" for case in use_cases])
+    # dump_results(
+    #     relative_fknns, [f"{folder}/{case}/fknn_relative" for case in use_cases]
+    # )
+
+    # NEW Metric(does not seem to work though...)
+    cases, obs_coverage_results, fobs_coverage_results = compute_obs_coverage(first_results)
+    for case, obs_cov, fobs_cov in zip(cases, obs_coverage_results, fobs_coverage_results):
+        dump_results([obs_cov], [f"{folder}/{case}/obs_cov"])
+        dump_results([fobs_cov], [f"{folder}/{case}/fobs_cov"])
+
 
     # # RQ3: only BW data with all behavior spaces
     # rq3_data = compute_rq1_results(bw_results)
@@ -1359,23 +1531,32 @@ if __name__ == "__main__":
     fig2.savefig("test_rq22_ebs.png")
 
     # this final state diversity is not shown for the initialization data (i.e., first 1000 iterations) since the values vary a lot.
-    x_index = (
-        19  # it means that the plotting starts at the (1 + 19) * 50 = 1000th iteration
-    )
-    fig3, axs3 = plot_rq2_fs_results(
-        use_cases,
-        colors_dict,
-        relative_knns,
-        relative_fknns,
-        computation_steps,
-        x_index,
-    )
-    for ax in axs3[0]:
-        ax.legend_ = None
-    for ax in axs3[-1]:
-        ax.legend_ = None
-    axs3[1][-1].legend_ = None
-    fig3.savefig("test_rq22_fs.png")
+    # x_index = (
+    #     19  # it means that the plotting starts at the (1 + 19) * 50 = 1000th iteration
+    # )
+    # fig3, axs3 = plot_rq2_fs_results(
+    #     use_cases,
+    #     colors_dict,
+    #     relative_knns,
+    #     relative_fknns,
+    #     computation_steps,
+    #     x_index,
+    # )
+    # for ax in axs3[0]:
+    #     ax.legend_ = None
+    # for ax in axs3[-1]:
+    #     ax.legend_ = None
+    # axs3[1][-1].legend_ = None
+    # fig3.savefig("test_rq22_fs.png")
+
+    fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
+    axs2[0][-1].legend_ = None
+    axs2[-1][-1].legend_ = None
+    legend = axs2[1][-1].legend_
+    for line in legend.get_lines():
+        plt.setp(line, linewidth=4)
+    fig2.savefig("test_rq22_fobs.png")
+
 
     # the last plotting function does not support such plotting starting index: we thus have to shorten the data before
     # x = np.arange((1 + x_index) * computation_steps - 1, 5000, computation_steps)

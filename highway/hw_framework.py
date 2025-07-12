@@ -286,6 +286,9 @@ class Framework:
         else:
             filepath = results_fp
 
+        if os.getenv("SLURM_ARRAY_TASK_ID"):
+            filepath += os.getenv("SLURM_ARRAY_TASK_ID")
+
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
         inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
@@ -464,6 +467,9 @@ class Framework:
         else:
             filepath = results_fp
 
+        if os.getenv("SLURM_ARRAY_TASK_ID"):
+            filepath += os.getenv("SLURM_ARRAY_TASK_ID")
+
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)
         inputs_buffer = open(f"{filepath}_inputs.txt", "w", buffering=1)
         cells_buffer = open(f"{filepath}_cells.txt", "w", buffering=1)
@@ -587,6 +593,9 @@ class Framework:
             )
         else:
             filepath = results_fp
+
+        if os.getenv("SLURM_ARRAY_TASK_ID"):
+            filepath += os.getenv("SLURM_ARRAY_TASK_ID")
 
         # to collect the data during the search, i.e., every model execution
         behaviors_buffer = open(f"{filepath}_behaviors.txt", "w", buffering=1)

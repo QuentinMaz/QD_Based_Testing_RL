@@ -105,6 +105,22 @@ def compute_grid_edges(
     return edges, mins, maxs
 
 
+def bin_observation(obs: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    obs = obs.flatten()
+    indices = np.zeros(obs.shape, dtype=int)
+
+    for i, e in enumerate(edges):
+        indices[i] = np.digitize(obs[i], e) - 1
+        indices[i] = np.clip(indices[i], 0, len(e) - 2)
+
+    return indices
+
+
+def compute_bins_edges(low: np.ndarray, high: np.ndarray, num_bins: int) -> np.ndarray:
+    edges = [np.linspace(start=l, stop=h, num=(num_bins + 1)) for l, h in zip(low, high)]
+    return np.array(edges)
+
+
 def compute_extrema(df: pd.DataFrame, columns: List[str]):
     return pd.DataFrame(
         data=[df[columns].min().to_numpy(), df[columns].max().to_numpy()],
@@ -210,7 +226,10 @@ def process_txt_log(filename: str):
                 str_dict = dict(s.strip().split(":") for s in splits)
                 dicts.append({k: float(v) for k, v in str_dict.items()})
             except:
+                print("=======================================", file=sys.stderr)
+                print(f'FILENAME: {filename}.', file=sys.stderr)
                 print(f'ERROR_TXT_LOG_PROCESSING for "{line}".', file=sys.stderr)
+                print("=======================================", file=sys.stderr)
 
     df = pd.DataFrame.from_records(dicts)
     if "failure_prob" in df.columns:
