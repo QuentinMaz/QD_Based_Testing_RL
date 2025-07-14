@@ -16,7 +16,7 @@ from metrics import (
 )
 from stable_baselines3.common.base_class import BaseAlgorithm
 
-from common import compute_cell, get_bin_edges
+from common import compute_cell, get_bin_edges, get_expert_bin_edges
 
 
 def concatenate_frames(frames_list: List[List[np.ndarray]]) -> np.ndarray:
@@ -137,6 +137,14 @@ class Framework(ABC):
         cell_dfs = []
         for i, cell_data in enumerate(self.cells_data):
             # a record consist of a score, the oracle result, the cell index, the cell and behavior point
+            bs_size = len(cell_data[0][-1])
+            columns = (
+                ["mean_acc_reward", "failure_prob", "cell_index"]
+                + [f"cell{i}" for i in range(2)]
+                + self.features[:bs_size]
+            )
+            if len(columns) < (bs_size + 5):
+                columns.extend([f"feature_{i}" for i in range((bs_size + 5) - len(columns))])
             cell_dfs.append(
                 pd.DataFrame.from_records(
                     data=[
@@ -150,9 +158,7 @@ class Framework(ABC):
                             behavior,
                         ) in cell_data
                     ],
-                    columns=["mean_acc_reward", "failure_prob", "cell_index"]
-                    + [f"cell{i}" for i in range(2)]
-                    + self.features,
+                    columns=columns,
                 )
             )
         if len(cell_dfs) != 0:
@@ -505,6 +511,29 @@ class Framework(ABC):
             measures,
         )
 
+
+    def process_env_seeds(self, env_seeds: List[int]):
+        if len(env_seeds) == 1:
+            self.xedges, self.yedges = get_expert_bin_edges(self.use_case, descriptors=[0, 1]) # or [4, 8]
+            get_behavior = lambda ebs_list, meas: ebs_list[0]
+            get_cell = lambda behavior: compute_cell(
+                behavior[[0, 1]], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+        else:
+            df = pd.read_csv(self.path_to_measures_extrema)
+            self.xedges, self.yedges = get_bin_edges(
+                df, measures=self.descriptors, num_bins=self.granularity
+            )
+            get_behavior = lambda ebs_list, meas: np.array([meas[k] for k in self.features]) # type: np.ndarray
+            get_cell = lambda behavior: compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+
+        self.config["xedges"] = list(self.xedges)
+        self.config["yedges"] = list(self.xedges)
+        return get_behavior, get_cell
+
+
     def test_policy(
         self,
         model: BaseAlgorithm,
@@ -555,6 +584,8 @@ class Framework(ABC):
         testing_start_time = time.time()
         execution_times = []
 
+        get_behavior, get_cell = self.process_env_seeds(env_seeds)
+
         for _ in tqdm.tqdm(range(init_budget), disable=disable_pbar):
             input: np.ndarray = self.generate_input()
 
@@ -564,7 +595,7 @@ class Framework(ABC):
             )
             t1 = time.time()
 
-            behavior = np.array([measures[k] for k in self.features])
+            behavior = get_behavior(behaviors_list, measures)
 
             inputs.append(input)
             behaviors.append(behavior)
@@ -576,19 +607,9 @@ class Framework(ABC):
 
         behaviors = np.array(behaviors)
 
-        df = pd.read_csv(self.path_to_measures_extrema)
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
-
         for i in range(init_budget):
             behavior = behaviors[i]
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
             mutated_input_index = self.update_cell(
                 cell, inputs[i], acc_rewards[i], failure_probs[i], behavior
             )
@@ -623,11 +644,9 @@ class Framework(ABC):
             t1 = time.time()
             execution_times.append(t1 - t0)
 
-            behavior = np.array([measures[k] for k in self.features])
+            behavior = get_behavior(behaviors_list, measures)
 
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
 
             mutated_input_index = self.update_cell(
                 cell, mutated_input, episode_reward, failure_prob, behavior
@@ -682,13 +701,7 @@ class Framework(ABC):
             f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
         )
 
-        df = pd.read_csv(self.path_to_measures_extrema)
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
+        get_behavior, get_cell = self.process_env_seeds(env_seeds)
 
         execution_times = []
 
@@ -707,10 +720,8 @@ class Framework(ABC):
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
-            behavior = np.array([measures[k] for k in self.features])
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            behavior = get_behavior(behaviors_list, measures)
+            cell = get_cell(behavior)
 
             input_index = self.update_cell(
                 cell, input, episode_reward, failure_prob, behavior
@@ -763,13 +774,7 @@ class Framework(ABC):
 
         self.prepare_logging(filepath, env_seeds)
 
-        df = pd.read_csv(self.path_to_measures_extrema)
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
+        get_behavior, get_cell = self.process_env_seeds(env_seeds)
 
         # helpers 1: recording the executions during each iteration
         def record(
@@ -780,9 +785,7 @@ class Framework(ABC):
             final_states_list: List[np.ndarray],
             expert_behaviors_list: List[np.ndarray],
         ) -> None:
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
             updated_cell_index = self.update_cell(
                 cell, input, reward, failure_prob, behavior
             )
@@ -803,7 +806,7 @@ class Framework(ABC):
                 r, fp, final_obs_list, behaviors_list, measures = (
                     self.execute_stochastic_policy(ind, model, env_seeds)
                 )
-                b = np.array([measures[k] for k in self.features])
+                b = get_behavior(behaviors_list, measures)
                 record(ind, r, fp, b, final_obs_list, behaviors_list)
                 behaviors.append(b)
             return np.array(behaviors)

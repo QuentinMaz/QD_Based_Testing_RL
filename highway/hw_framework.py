@@ -117,6 +117,14 @@ class Framework:
         cell_dfs = []
         for i, cell_data in enumerate(self.cells_data):
             # a record consist of a score, the oracle result, the cell index, the cell and behavior point
+            bs_size = len(cell_data[0][-1])
+            columns = (
+                ["mean_acc_reward", "failure_prob", "cell_index"]
+                + [f"cell{i}" for i in range(2)]
+                + self.features[:bs_size]
+            )
+            if len(columns) < (bs_size + 5):
+                columns.extend([f"feature_{i}" for i in range((bs_size + 5) - len(columns))])
             cell_dfs.append(
                 pd.DataFrame.from_records(
                     data=[
@@ -130,9 +138,7 @@ class Framework:
                             behavior,
                         ) in cell_data
                     ],
-                    columns=["mean_acc_reward", "failure_prob", "cell_index"]
-                    + [f"cell{i}" for i in range(2)]
-                    + self.features,
+                    columns=columns,
                 )
             )
         pd.concat(cell_dfs, ignore_index=True).to_csv(f"{filepath}_data.csv", index=0)
@@ -318,6 +324,27 @@ class Framework:
         testing_start_time = time.time()
         execution_times = []
 
+        if len(env_seeds) == 1:
+            self.xedges, self.yedges = np.load("../experiments/grid/hw/edges.npy")
+            get_behavior = lambda ebs_list, meas: ebs_list[0]
+            get_cell = lambda behavior: compute_cell(
+                behavior[[0, 1]], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+        else:
+            df = pd.read_csv("measures.csv")
+            model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+            df = df.loc[df.model_name == model_name]
+            self.xedges, self.yedges = get_bin_edges(
+                df, measures=self.descriptors, num_bins=self.granularity
+            )
+            get_behavior = lambda ebs_list, meas: np.array([meas[k] for k in self.features]) # type: np.ndarray
+            get_cell = lambda behavior: compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+
+        self.config["xedges"] = list(self.xedges)
+        self.config["yedges"] = list(self.xedges)
+
         for _ in tqdm.tqdm(range(init_budget), disable=disable_pbar):
             input: np.ndarray = self.executor.generate_input(self.rng)
 
@@ -330,7 +357,7 @@ class Framework:
             t1 = time.time()
             execution_times.append(t1 - t0)
 
-            behavior = np.array([measures[k] for k in self.features])
+            behavior = get_behavior(behaviors_list, measures)
 
             inputs.append(input)
             behaviors.append(behavior)
@@ -341,21 +368,9 @@ class Framework:
 
         behaviors = np.array(behaviors)
 
-        df = pd.read_csv("measures.csv")
-        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name == model_name]
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
-
-        self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
-
         for i in range(init_budget):
             behavior = behaviors[i]
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
             mutated_input_index = self.update_cell(
                 cell, inputs[i], acc_rewards[i], failure_probs[i], behavior
             )
@@ -397,11 +412,9 @@ class Framework:
             t1 = time.time()
             execution_times.append(t1 - t0)
 
-            behavior = np.array([measures[k] for k in self.features])
+            behavior = get_behavior(behaviors_list, measures)
 
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
 
             mutated_input_index = self.update_cell(
                 cell, mutated_input, episode_reward, failure_prob, behavior
@@ -490,12 +503,23 @@ class Framework:
             f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
         )
 
-        df = pd.read_csv("measures.csv")
-        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name == model_name]
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
+        if len(env_seeds) == 1:
+            self.xedges, self.yedges = np.load("../experiments/grid/hw/edges.npy")
+            get_behavior = lambda ebs_list, meas: ebs_list[0]
+            get_cell = lambda behavior: compute_cell(
+                behavior[[0, 1]], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+        else:
+            df = pd.read_csv("measures.csv")
+            model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+            df = df.loc[df.model_name == model_name]
+            self.xedges, self.yedges = get_bin_edges(
+                df, measures=self.descriptors, num_bins=self.granularity
+            )
+            get_behavior = lambda ebs_list, meas: np.array([meas[k] for k in self.features]) # type: np.ndarray
+            get_cell = lambda behavior: compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -519,10 +543,8 @@ class Framework:
             )
             t1 = time.time()
             execution_times.append(t1 - t0)
-            behavior = np.array([measures[k] for k in self.features])
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            behavior = get_behavior(behaviors_list, measures)
+            cell = get_cell(behavior)
 
             input_index = self.update_cell(
                 cell, input, episode_reward, failure_prob, behavior
@@ -612,12 +634,23 @@ class Framework:
             for seed in env_seeds
         ]
 
-        df = pd.read_csv("measures.csv")
-        model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
-        df = df.loc[df.model_name == model_name]
-        self.xedges, self.yedges = get_bin_edges(
-            df, measures=self.descriptors, num_bins=self.granularity
-        )
+        if len(env_seeds) == 1:
+            self.xedges, self.yedges = np.load("../experiments/grid/hw/edges.npy")
+            get_behavior = lambda ebs_list, meas: ebs_list[0]
+            get_cell = lambda behavior: compute_cell(
+                behavior[[0, 1]], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
+        else:
+            df = pd.read_csv("measures.csv")
+            model_name = "DQN" if not isinstance(model, AgentWrapper) else model.model_name
+            df = df.loc[df.model_name == model_name]
+            self.xedges, self.yedges = get_bin_edges(
+                df, measures=self.descriptors, num_bins=self.granularity
+            )
+            get_behavior = lambda ebs_list, meas: np.array([meas[k] for k in self.features]) # type: np.ndarray
+            get_cell = lambda behavior: compute_cell(
+                behavior[self.descriptor_indices], self.xedges, self.yedges
+            ).tolist()  # type: List[int]
 
         self.config["xedges"] = list(self.xedges)
         self.config["yedges"] = list(self.xedges)
@@ -631,9 +664,7 @@ class Framework:
             final_states_list: List[np.ndarray],
             expert_behaviors_list: List[np.ndarray],
         ) -> None:
-            cell = compute_cell(
-                behavior[self.descriptor_indices], self.xedges, self.yedges
-            ).tolist()
+            cell = get_cell(behavior)
             updated_cell_index = self.update_cell(
                 cell, input, reward, failure_prob, behavior
             )
@@ -661,7 +692,7 @@ class Framework:
                         ind, model, n=n, deterministic=True
                     )
                 )
-                b = np.array([measures[k] for k in self.features])
+                b = get_behavior(behaviors_list, measures)
                 record(ind, r, fp, b, final_obs_list, behaviors_list)
                 behaviors.append(b)
             return np.array(behaviors)
