@@ -43,7 +43,7 @@ def parse_arguments():
         help="Seed index for the method (testing)."
     )
     parser.add_argument(
-        "--n",
+        "--env_seeds",
         default=3,
         type=int,
         help="Number of seeds for the environments. At least 1, and up to 10."
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     method = args.method  # type: str
 
     seed_index = args.seed_index  # type: int
-    n = args.n  # type: int
+    n = args.env_seeds  # type: int
 
     descriptors = args.descriptors  # type: Tuple[str, str]
     folder = args.log_folder  # type: str
