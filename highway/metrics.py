@@ -26,13 +26,19 @@ def compute_action_distributions(
     sub_action_list = [
         sub_list[:size] for sub_list in actions_list
     ]  # type: List[np.ndarray]
-    # shape (time, action, samples)
-    action_values = np.stack(sub_action_list, axis=-1)
+
+    if len(sub_action_list) == 1:
+        # shape (action, time)
+        action_values = np.transpose(sub_action_list[0], axes=[1, 0])
+        # print("One list of actions detected.", action_values.shape)
+    else:
+        # shape (time, action, samples)
+        action_values = np.stack(sub_action_list, axis=-1)
     # bins every action
     action_distribution = np.apply_along_axis(
         func1d=lambda x: np.histogram(x, bins=bins, range=range, density=True)[0],
         arr=action_values,
-        axis=-1,  # 2
+        axis=-1,
     )
     action_distribution += epsilon
     normalized_distribution = np.apply_along_axis(
