@@ -1,3 +1,4 @@
+import warnings
 import torch
 import json
 import os
@@ -41,6 +42,18 @@ def parse_arguments():
         type=int,
         help="Seed index for the method (testing)."
     )
+    parser.add_argument(
+        "--n",
+        default=3,
+        type=int,
+        help="Number of seeds for the environments. At least 1, and up to 10."
+    )
+    parser.add_argument(
+        "--log_folder",
+        default="results",
+        type=str,
+        help="Name of the directory to log the results."
+    )
     return parser.parse_args()
 
 
@@ -53,10 +66,21 @@ if __name__ == "__main__":
     method = args.method  # type: str
 
     seed_index = args.seed_index  # type: int
+    n = args.n  # type: int
+
     descriptors = args.descriptors  # type: Tuple[str, str]
+    folder = args.log_folder  # type: str
 
     assert len(descriptors) == 2, len(descriptors)
     assert all([d in FEATURES for d in descriptors]), descriptors
+
+    assert n > 0, "Number of seeds for the environments must be superior to 0."
+    if n > 10:
+        n = 10
+        warnings.warn(
+            f"The maximum number of seeds for the environment is 10 (received '{n}'). Set to 10.",
+            UserWarning
+        )
 
     # experimental parameters
     test_budget = 5000
@@ -70,13 +94,14 @@ if __name__ == "__main__":
     # parameters / configurations from arguments
     assert (seed_index >= 0) and (seed_index < len(EXPERIMENT_SEEDS)), f"Seed index: {seed_index}..."
     seed = EXPERIMENT_SEEDS[seed_index]
+    env_seeds = ENV_SEEDS[:n]
 
     print("=================================")
-    print("method, seed inded (and thus seed), descriptors:")
-    print(method, seed_index, seed, descriptors)
+    print("method, seed inded (and thus seed), descriptors, env_seeds:")
+    print(method, seed_index, seed, descriptors, env_seeds)
     print("=================================")
 
-    results_fp = Path(f"results_new/hw/{method}")
+    results_fp = Path(f"{folder}/hw/{method}")
     results_fp.mkdir(parents=True, exist_ok=True)
 
     from executor import HighwayTestManager
@@ -91,18 +116,18 @@ if __name__ == "__main__":
 
     if method == "rt":
         framework.random_testing(
-            model, ENV_SEEDS, test_budget, str(results_fp)
+            model, env_seeds, test_budget, str(results_fp)
         )
 
     elif method == "qd":
         framework.test_policy(
-            model, ENV_SEEDS, test_budget, init_budget, str(results_fp)
+            model, env_seeds, test_budget, init_budget, str(results_fp)
         )
 
     elif method == "ns":
         framework.novelty_search(
             model,
-            ENV_SEEDS,
+            env_seeds,
             population_size,
             nb_iterations,
             k,
@@ -114,7 +139,7 @@ if __name__ == "__main__":
         from launch_mdpfuzz import MDPFuzzExecutor
         executor = MDPFuzzExecutor(
             sim_steps=800,
-            env_seeds=ENV_SEEDS,
+            env_seeds=env_seeds,
             log_path=str(results_fp)
         )
         fuzzer_logs_path = executor.fp + "_fuzzer"

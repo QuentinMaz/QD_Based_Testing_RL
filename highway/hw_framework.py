@@ -14,7 +14,7 @@ from stable_baselines3.common.base_class import BaseAlgorithm
 from executor import HighwayTestManager
 
 EXPERIMENT_SEEDS = [2021, 42, 2023, 20, 0, 10, 4, 2006, 512, 1453]
-ENV_SEEDS = [0, 1, 2]
+ENV_SEEDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 POP_SIZES = [100, 250, 500]
 ITERATIONS = [50, 20, 10]
 FEATURES = [

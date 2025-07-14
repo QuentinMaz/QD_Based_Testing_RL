@@ -380,6 +380,10 @@ def plot_rq1_results(
             label = name
             if "MAE+MS" in label:
                 linestyle = "dotted"
+            elif "MAE+ML" in label:
+                linestyle = "dashed"
+            elif "MAA+MS" in label:
+                linestyle = "dashdot"
             else:
                 linestyle = "solid"
             if isinstance(data, np.ndarray):
@@ -778,6 +782,10 @@ def plot_coverage_results(
             label = name
             if "MAE+MS" in label:
                 linestyle = "dotted"
+            elif "MAE+ML" in label:
+                linestyle = "dashed"
+            elif "MAA+MS" in label:
+                linestyle = "dashdot"
             else:
                 linestyle = "solid"
             # BS coverage (statistical)
@@ -1386,6 +1394,12 @@ def load_data():
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
+    [
+        ll_results.extend(
+            read_results_from_folder(f"results_new2/ll/{m}/", include_final_states=True, include_expert_behaviors=True)
+        )
+        for m in ["ns", "rt", "mdpfuzz", "qd"]
+    ]
 
     # BW
     bw_results = read_results_from_folder(
@@ -1398,6 +1412,12 @@ def load_data():
             read_results_from_folder(f"results_new/bw/{m}/", include_final_states=True, include_expert_behaviors=True)
         )
         for m in ["ns", "rt", "mdpfuzz"]
+    ]
+    [
+        bw_results.extend(
+            read_results_from_folder(f"results_new2/bw/{m}/", include_final_states=True, include_expert_behaviors=True)
+        )
+        for m in ["ns", "rt", "mdpfuzz", "qd"]
     ]
 
     # HW
@@ -1412,12 +1432,19 @@ def load_data():
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
+    [
+        hw_results.extend(
+            read_results_from_folder(f"../highway/results_new2/hw/{m}/", include_final_states=True, include_expert_behaviors=True)
+        )
+        for m in ["ns", "rt", "mdpfuzz", "qd"]
+    ]
     # renames the QD-based methods w.r.t the descriptor pair used
     for d in ll_results + bw_results + hw_results:
         if d["config"]["name"] in ["MAP-Elites", "Novelty Search"]:
             descriptors = d["config"]["descriptors"]
-            suffix = "MAE+ML" if descriptors[-1].endswith("spread") else "MAE+MS"
-            d["config"]["name"] += f" {suffix}"
+            prefix = "M" if "mean" in descriptors[0] else "A"
+            suffix = "S" if "spread" in descriptors[-1] else "L"
+            d["config"]["name"] += f" {prefix}AE+M{suffix}"
 
     return bw_results + ll_results + hw_results
 
@@ -1471,7 +1498,6 @@ if __name__ == "__main__":
     #     relative_fknns, [f"{folder}/{case}/fknn_relative" for case in use_cases]
     # )
 
-    # NEW Metric(does not seem to work though...)
     cases, obs_coverage_results, fobs_coverage_results = compute_obs_coverage(first_results)
     for case, obs_cov, fobs_cov in zip(cases, obs_coverage_results, fobs_coverage_results):
         dump_results([obs_cov], [f"{folder}/{case}/obs_cov"])
