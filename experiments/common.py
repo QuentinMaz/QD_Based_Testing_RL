@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 import json
 import os
 import sys
@@ -353,6 +354,131 @@ def read_results_from_folder(results_folder: str, **kwargs) -> List[Dict]:
     return dicts
 
 
+##############################################################################
+########################## RESULTS STORAGE/LOADING ###########################
+
+
+def dump_dictionary(d: Dict[str, Union[np.ndarray, List]], filename: str):
+    dict_to_dump = {}
+    for k, v in d.items():
+        if isinstance(v, np.ndarray):
+            dict_to_dump[k] = v.tolist()
+        else:
+            dict_to_dump[k] = v
+    with open(f'{filename.split(".")[0]}.json', "w") as f:
+        f.write(json.dumps(dict_to_dump))
+
+
+def dump_dictionaries(
+    dict_list: List[Dict[str, Union[np.ndarray, List]]], filenames: List[str]
+):
+    assert len(filenames) == len(dict_list)
+
+    for d, name in zip(dict_list, filenames):
+        dump_dictionary(d, name)
+
+
+def dump_results(dict_list: List[Dict[str, Iterable]], filenames: List[str]):
+    assert len(filenames) == len(dict_list)
+
+    for d, name in zip(dict_list, filenames):
+        dict_to_dump = {}
+        for k, v in d.items():
+            # assert len(v) == 3, f'Three statistics are expected (found {len(v)}).'
+            # assert np.all([len(t) == v[0] for t in v]), 'Three statistics of a result is malformed.'
+            if isinstance(v, np.ndarray):
+                dict_to_dump[k] = v.tolist()
+            else:
+                # must be a list of numpy arrays
+                assert np.all([isinstance(t, np.ndarray) for t in v])
+                dict_to_dump[k] = [t.tolist() for t in v]
+        with open(f'{name.split(".")[0]}.json', "w") as f:
+            f.write(json.dumps(dict_to_dump))
+
+
+def load_result(filepath: str):
+    fp = f"{filepath}.json"
+    if not os.path.exists(fp):
+        warnings.warn(f"File {fp} not found.", RuntimeWarning)
+        return {}
+    try:
+        with open(fp, "r") as f:
+            d = json.load(f)
+    except:
+        d = {}
+    finally:
+        for k in d.keys():
+            v = d[k]
+            assert isinstance(v, List)
+            if isinstance(v[0], List):
+                new_v = [np.array(l) for l in v]
+            else:
+                new_v = np.array(v)
+            d[k] = new_v
+        return d
+
+
+def load_results(
+    data_folder: str = "data/",
+    keys: List[str] = ["rq1", "bs_cov", "fbs_cov", "obs_cov", "fobs_cov"],
+):
+    """
+    Returns all the results per use-case-folder as a list of dictionaries ordered by use-case.
+    Therefore, every list has a length of |use-cases|, where the elements are dictionaries of the results (whose keys are the names of the framework).
+    """
+    if not data_folder.endswith("/"):
+        data_folder += "/"
+    use_cases = [d for d in os.listdir(data_folder) if os.path.isdir(f"{data_folder}{d}")]
+    use_cases.sort()
+    all_results = [[] for _ in range(len(keys))]
+    for k in range(len(keys)):
+        for case in use_cases:
+            all_results[k].append(load_result(f"{data_folder}{case}/{keys[k]}"))
+    return all_results
+
+
+def assemble_n_results(
+        data_folders: List[str],
+        methods=["MAP-Elites", "MDPFuzz", "Novelty Search", "Random Testing"],
+        use_cases=["Bipedal Walker", "Highway", "Lunar Lander"],
+        suffix="MAE+MS",
+        metric="bs_cov"
+    ):
+    assert metric in ["rq1", "bs_cov", "fbs_cov", "obs_cov", "fobs_cov"]
+
+    # shape (env_seeds, use cases)
+    all_results = [load_results(data_folder, [metric])[0] for data_folder in data_folders]
+    # print(len(all_results), [len(r) for r in all_results])
+    assembled_data = [] # {k: [] for k in methods} for _ in range(use_cases)]
+    # so we have to re-organize the data per use case
+    for i, case in enumerate(use_cases):
+        case_results = [r[i] for r in all_results]
+        # print(f"Found {len(case_results)} for use case {case}.")
+        case_data = {k: [] for k in methods}
+        for d in case_results:
+            # print(case, list(d.keys()))
+            for k in methods:
+                if k in d:
+                    case_data[k].append(d[k])
+                else:
+                    if k in ["MAP-Elites", "Novelty Search"]:
+                        suffixed_key = f"{k} {suffix}"
+                        if suffixed_key in d:
+                            case_data[k].append(d[suffixed_key])
+                            # print(f"Added suffixed data for {k} in {case}.")
+                    else:
+                        warnings.warn(f"No data for {k} in {case}.", RuntimeWarning)
+
+        # print(f"============= SUMMARY OF DATA FOR CASE {case} ================")
+        # for k, v in case_data.items():
+        #     print(k, f"{len(v)} results.")
+
+        # print("===============================================================")
+        assembled_data.append(case_data)
+    return assembled_data
+
+
+
 #################################################################################################
 ####################################### MODELS LOADING ##########################################
 
@@ -378,3 +504,23 @@ def load_bipedal_walker_model():
         kwargs={"seed": 0, "buffer_size": 1},
         device="cpu",
     )
+
+
+#################################################################################################
+################################## PERFORMANCE AND METRICS ######################################
+
+
+def isin(array: np.ndarray, element: np.ndarray) -> Union[bool, np.ndarray]:
+    return (array[:, None] == element).all(axis=-1).any(axis=1)
+
+
+def isin_index(array: np.ndarray, element: np.ndarray):
+    return next(
+        (
+            i
+            for i, j in enumerate((array[:, None] == element).all(axis=-1).any(axis=1))
+            if j
+        ),
+        None,
+    )
+

@@ -16,8 +16,10 @@ from common import (
     MEAS_INDICES,
     MEAS_STR_INDICES,
     MEASURES,
+    assemble_n_results,
     bin_observation,
     compute_cell_filling,
+    dump_results,
     get_expert_bin_edges,
     get_measures_edges,
     read_results_from_folder,
@@ -285,8 +287,12 @@ def plot_ns_analysis(ns_res: List[Dict]):
 def color_data(
     data: List[Dict],
 ) -> Tuple[List[str], List[str], Dict[str, Tuple[float]]]:
-    use_cases: List[str] = np.unique([d["config"]["use_case"] for d in data]).tolist()
-    methods_names: List[str] = np.unique([d["config"]["name"] for d in data]).tolist()
+    try:
+        use_cases: List[str] = np.unique([d["config"]["use_case"] for d in data]).tolist()
+        methods_names: List[str] = np.unique([d["config"]["name"] for d in data]).tolist()
+    except:
+        use_cases = []
+        methods_names = set(sum([list(d.keys()) for d in data], []))
     cmap = plt.cm.jet  # type: matplotlib.colors.LinearSegmentedColormap
     rgba_colors = [cmap(i) for i in np.linspace(0, 1, len(methods_names))]
     colors_dict = {n: c for n, c in zip(methods_names, rgba_colors)}
@@ -817,6 +823,7 @@ def plot_rq2_ebs_results(
     fig, axs = plot_coverage_results(use_cases, colors_dict, ebs_results, faulty_ebs_results)
     axs[0][0].set_title("#Expert Behaviors", fontsize=TITLE_LABEL_FONTSIZE)
     axs[0][1].set_title("#Faulty Expert Behaviors", fontsize=AXIS_LABEL_FONTSIZE)
+    fig.tight_layout()
     return fig, axs
 
 def plot_rq2_fobs_results(
@@ -828,6 +835,7 @@ def plot_rq2_fobs_results(
     fig, axs = plot_coverage_results(use_cases, colors_dict, fobs_results, faulty_fobs_results)
     axs[0][0].set_title("#Final Obs Coverage", fontsize=TITLE_LABEL_FONTSIZE)
     axs[0][1].set_title("#Faulty Final Obs Coverage", fontsize=AXIS_LABEL_FONTSIZE)
+    fig.tight_layout()
     return fig, axs
 
 
@@ -1004,8 +1012,100 @@ def plot_rq3_results(
     return (fig, axs)
 
 
+
+def plot_n_results(
+    use_cases: List[str],
+    env_seeds: List[int],
+    results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]],
+    colors_dict: Dict[str, Tuple],
+    additional_results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]] = None
+):
+    """
+    Plots any statistical results for each use case and n.
+    `results` is assumed to be ordered w.r.t to `use_cases`.
+    Use cases are shown horizontally (with the different values of n).
+
+    Parameters
+    ----------
+    use_cases : List[str]
+        Names of the use cases.
+    env_seeds : List[int]
+        Number of seeds (i.e. n) used for each result in `results`' values.
+    results : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]]
+        List of dictionaries whose keys are the names of the methods, and values are a list of statistical data (tuple of 3 numpy arrays of equal length); one for each n value.
+        As such, the length of results must equal the one of `use_cases`, and all the values in all the dictionaries must be of length equal to one of `env_seeds`.
+
+    Returns
+    -------
+    (fig, axes)
+    """
+    assert len(use_cases) == len(results)
+    if not all([l == len(env_seeds) for l in sum([[len(r) for r in d.values()] for d in results], [])]):
+        warnings.warn("Not all the lists of results in `results`' dictionaries have |env_seeds| data...")
+
+    fig_size = 5
+    fig, axes = plt.subplots(
+        nrows=len(use_cases),
+        ncols=len(env_seeds),
+        figsize=(fig_size * len(env_seeds), fig_size * len(use_cases)),
+        sharex=True, sharey="row"
+    )
+
+    if len(use_cases) == 1:
+        axes = [axes]
+        axes[0].grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+    else:
+        [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axes.flat]
+
+    [ax.set_title(f"N={n}", fontsize=AXIS_LABEL_FONTSIZE) for (ax, n) in zip(axes[0], env_seeds)]
+    [ax.set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE) for ax in axes[-1]]
+    [ax.set_ylabel(case.capitalize(), fontsize=AXIS_LABEL_FONTSIZE) for (ax, case) in zip([a[0] for a in axes], use_cases)]
+
+    for (data, axs) in zip(results, axes):
+        for name, res_list in data.items():
+            for i, (y, perc_25, perc_75) in enumerate(res_list):
+                ax = axs[i]
+                color = colors_dict[name]
+                label = name
+                x = np.arange(len(y))
+                ax.plot(x, y, color=color, label=label, linewidth=2)
+                ax.fill_between(
+                    x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
+                )
+
+    if additional_results is not None:
+        for (data, axs) in zip(additional_results, axes):
+            for name, res_list in data.items():
+                for i, (y, perc_25, perc_75) in enumerate(res_list):
+                    ax = axs[i]
+                    color = colors_dict[name]
+                    label = name
+                    x = np.arange(len(y))
+                    ax.plot(x, y, color=color, linewidth=2, linestyle="dashed")
+                    ax.fill_between(
+                        x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
+                    )
+
+
+
+    ax = axes[np.argmax([len(d.keys()) for d in results])][0]
+    legend = ax.legend(
+        prop={"size": 10},
+        labelspacing=1.1,
+        handletextpad=1.05,
+        borderpad=1.05,
+        borderaxespad=1.0,
+    )
+    legend_frame = legend.get_frame()
+    legend_frame.set_facecolor("0.9")
+    legend_frame.set_edgecolor("0.9")
+    fig.tight_layout()
+    return (fig, axs)
+
+
 #############################################################################################################
-############################# NEW RQ2: coverage of the different expert behavior spaces ############################
+##################### NEW RQ2: coverage of the different expert behavior spaces #############################
+##################### UNUSED RQ2: coverage of the generic behavior spaces ###################################
 
 
 def compute_expert_behaviors_coverage(data: List[Dict]):
@@ -1276,107 +1376,6 @@ def plot_rq2_meas_results(
     return (fig, axs)
 
 
-#################################################################################################
-################################## PERFORMANCE AND METRICS ######################################
-
-
-def isin(array: np.ndarray, element: np.ndarray) -> Union[bool, np.ndarray]:
-    return (array[:, None] == element).all(axis=-1).any(axis=1)
-
-
-def isin_index(array: np.ndarray, element: np.ndarray):
-    return next(
-        (
-            i
-            for i, j in enumerate((array[:, None] == element).all(axis=-1).any(axis=1))
-            if j
-        ),
-        None,
-    )
-
-
-##############################################################################
-########################## RESULTS STORAGE/LOADING ###########################
-
-
-def dump_dictionary(d: Dict[str, Union[np.ndarray, List]], filename: str):
-    dict_to_dump = {}
-    for k, v in d.items():
-        if isinstance(v, np.ndarray):
-            dict_to_dump[k] = v.tolist()
-        else:
-            dict_to_dump[k] = v
-    with open(f'{filename.split(".")[0]}.json', "w") as f:
-        f.write(json.dumps(dict_to_dump))
-
-
-def dump_dictionaries(
-    dict_list: List[Dict[str, Union[np.ndarray, List]]], filenames: List[str]
-):
-    assert len(filenames) == len(dict_list)
-
-    for d, name in zip(dict_list, filenames):
-        dump_dictionary(d, name)
-
-
-def dump_results(dict_list: List[Dict[str, Iterable]], filenames: List[str]):
-    assert len(filenames) == len(dict_list)
-
-    for d, name in zip(dict_list, filenames):
-        dict_to_dump = {}
-        for k, v in d.items():
-            # assert len(v) == 3, f'Three statistics are expected (found {len(v)}).'
-            # assert np.all([len(t) == v[0] for t in v]), 'Three statistics of a result is malformed.'
-            if isinstance(v, np.ndarray):
-                dict_to_dump[k] = v.tolist()
-            else:
-                # must be a list of numpy arrays
-                assert np.all([isinstance(t, np.ndarray) for t in v])
-                dict_to_dump[k] = [t.tolist() for t in v]
-        with open(f'{name.split(".")[0]}.json', "w") as f:
-            f.write(json.dumps(dict_to_dump))
-
-
-def load_result(filepath: str):
-    fp = f"{filepath}.json"
-    if not os.path.exists(fp):
-        warnings.warn(f"File {fp} not found.", RuntimeWarning)
-        return {}
-    try:
-        with open(fp, "r") as f:
-            d = json.load(f)
-    except:
-        d = {}
-    finally:
-        for k in d.keys():
-            v = d[k]
-            assert isinstance(v, List)
-            if isinstance(v[0], List):
-                new_v = [np.array(l) for l in v]
-            else:
-                new_v = np.array(v)
-            d[k] = new_v
-        return d
-
-
-def load_results(
-    data_folder: str = "data/",
-    keys: List[str] = ["rq1", "bs_cov", "fbs_cov", "knn_relative", "fknn_relative"],
-):
-    """
-    Returns all the results per use-case-folder as a list of dictionaries ordered by use-case.
-    Therefore, every list has a length of |use-cases|, where the elements are dictionaries of the results (whose keys are the names of the framework).
-    """
-    if not data_folder.endswith("/"):
-        data_folder += "/"
-    use_cases = os.listdir(data_folder)
-    all_results = [[] for _ in range(len(keys))]
-    for k in range(len(keys)):
-        for case in use_cases:
-            all_results[k].append(load_result(f"{data_folder}{case}/{keys[k]}"))
-    return all_results
-
-
 ##############################################################################
 ################################## MAIN ######################################
 
@@ -1448,6 +1447,35 @@ def load_data():
 
     return bw_results + ll_results + hw_results
 
+def fetch_data(folder_name: str):
+    use_cases = ["bw", "ll"]
+    methods = ["ns", "rt", "mdpfuzz", "qd"]
+
+    results = sum(
+        [
+            read_results_from_folder(
+                f"{folder_name}/{u}/{m}/",
+                include_final_states=True,
+                include_expert_behaviors=True
+            )
+            for u in use_cases for m in methods],
+        []
+    )
+    results.extend(
+        sum(
+            [
+                read_results_from_folder(
+                    f"../highway/{folder_name}/hw/{m}/",
+                    include_final_states=True,
+                    include_expert_behaviors=True
+                )
+                for m in methods
+            ],
+            []
+        )
+    )
+    return results
+
 
 # exec(open('result_analysis.py').read())
 if __name__ == "__main__":
@@ -1462,7 +1490,10 @@ if __name__ == "__main__":
 
     ####################### Analysis computation #######################
 
+    # fault detection
     rq1_data = compute_rq1_results(first_results)
+
+    # expert behavior coverage
     ebs_cov, efbs_cov = compute_expert_behaviors_coverage(first_results)
     # stores the results of the analysis
     folder = "data_new"
@@ -1475,70 +1506,13 @@ if __name__ == "__main__":
     dump_results(ebs_cov, [f"{folder}/{case}/bs_cov" for case in use_cases])
     dump_results(efbs_cov, [f"{folder}/{case}/fbs_cov" for case in use_cases])
 
-    # knn computation of the final states
-    # computation_steps, k = 50, 3
-    # for case, results in zip(use_cases, [bw_results, hw_results, ll_results]):
-    #     use_cases, knn_results, fknn_results, _xstarts, colors_dict = compute_mean_knn(
-    #         results, knn=k, computation_steps=computation_steps
-    #     )
-    #     dump_results(knn_results, [f"{folder}/{case}/knn"])
-    #     dump_results(fknn_results, [f"{folder}/{case}/fknn"])
-    #     print(case, "DONE.")
-
-    # relative_knns = [
-    #     compute_relative_performance(results_dict) for results_dict in knn_results
-    # ]
-    # relative_fknns = [
-    #     compute_relative_performance(results_dict) for results_dict in fknn_results
-    # ]
-    # dump_results(knn_results, [f"{folder}/{case}/knn" for case in use_cases])
-    # dump_results(fknn_results, [f"{folder}/{case}/fknn" for case in use_cases])
-    # dump_results(relative_knns, [f"{folder}/{case}/knn_relative" for case in use_cases])
-    # dump_results(
-    #     relative_fknns, [f"{folder}/{case}/fknn_relative" for case in use_cases]
-    # )
-
+    # final observation coverage
     cases, obs_coverage_results, fobs_coverage_results = compute_obs_coverage(first_results)
     for case, obs_cov, fobs_cov in zip(cases, obs_coverage_results, fobs_coverage_results):
         dump_results([obs_cov], [f"{folder}/{case}/obs_cov"])
         dump_results([fobs_cov], [f"{folder}/{case}/fobs_cov"])
 
-
-    # # RQ3: only BW data with all behavior spaces
-    # rq3_data = compute_rq1_results(bw_results)
-    # rq3_bs_cov, rq3_fbs_cov = compute_rq2_bs_results(bw_results)
-
-    # bw_folder = "data/rq3"
-    # if not os.path.exists(bw_folder):
-    #     os.mkdir(bw_folder)
-    # for case in bw_cases:
-    #     sub_folder = f"{bw_folder}/{case}"
-    #     if not os.path.exists(sub_folder):
-    #         os.mkdir(sub_folder)
-
-    # dump_results(rq3_data, [f"{bw_folder}/{case}/rq1" for case in bw_cases])
-    # dump_results(rq3_bs_cov, [f"{bw_folder}/{case}/bs_cov" for case in bw_cases])
-    # dump_results(rq3_fbs_cov, [f"{bw_folder}/{case}/fbs_cov" for case in bw_cases])
-    # # knn computation of the final states
-    # bw_cases, rq3_knn_results, rq3_fknn_results, _xstarts, bw_colors_dict = (
-    #     compute_mean_knn(bw_results, knn=k, computation_steps=computation_steps)
-    # )
-    # rq3_relative_knns = [
-    #     compute_relative_performance(results_dict) for results_dict in rq3_knn_results
-    # ]
-    # rq3_relative_fknns = [
-    #     compute_relative_performance(results_dict) for results_dict in rq3_fknn_results
-    # ]
-    # dump_results(rq3_knn_results, [f"{bw_folder}/{case}/knn" for case in bw_cases])
-    # dump_results(rq3_fknn_results, [f"{bw_folder}/{case}/fknn" for case in bw_cases])
-    # dump_results(
-    #     rq3_relative_knns, [f"{bw_folder}/{case}/knn_relative" for case in bw_cases]
-    # )
-    # dump_results(
-    #     rq3_relative_fknns, [f"{bw_folder}/{case}/fknn_relative" for case in bw_cases]
-    # )
-
-    ####################### Plotting #######################
+    ########################### Plotting ###########################
 
     fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
     for ax in axs1.flat:
@@ -1556,25 +1530,6 @@ if __name__ == "__main__":
         plt.setp(line, linewidth=4)
     fig2.savefig("test_rq22_ebs.png")
 
-    # this final state diversity is not shown for the initialization data (i.e., first 1000 iterations) since the values vary a lot.
-    # x_index = (
-    #     19  # it means that the plotting starts at the (1 + 19) * 50 = 1000th iteration
-    # )
-    # fig3, axs3 = plot_rq2_fs_results(
-    #     use_cases,
-    #     colors_dict,
-    #     relative_knns,
-    #     relative_fknns,
-    #     computation_steps,
-    #     x_index,
-    # )
-    # for ax in axs3[0]:
-    #     ax.legend_ = None
-    # for ax in axs3[-1]:
-    #     ax.legend_ = None
-    # axs3[1][-1].legend_ = None
-    # fig3.savefig("test_rq22_fs.png")
-
     fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
     axs2[0][-1].legend_ = None
     axs2[-1][-1].legend_ = None
@@ -1584,41 +1539,74 @@ if __name__ == "__main__":
     fig2.savefig("test_rq22_fobs.png")
 
 
-    # the last plotting function does not support such plotting starting index: we thus have to shorten the data before
-    # x = np.arange((1 + x_index) * computation_steps - 1, 5000, computation_steps)
-    # for dd in rq3_relative_knns:
-    #     for k, v in dd.items():
-    #         dd[k] = v[x_index:]
-    # for dd in rq3_relative_fknns:
-    #     for k, v in dd.items():
-    #         dd[k] = v[x_index:]
+    ####################### Heavy Stuff now: Impact of N on the previous results #######################
 
-    # fig4, axs4 = plot_rq3_results(
-    #     [rq3_data, rq3_bs_cov, rq3_fbs_cov, rq3_relative_knns, rq3_relative_fknns],
-    #     colors_dict,
-    #     [np.arange(5000), np.arange(5000), np.arange(5000), x, x],
-    #     [
-    #         "$Distance$ and $Hull$ $angle$",
-    #         "$Torque$ and $Jump$",
-    #         "$Hip$ $angles$",
-    #         "$Hip$ $speeds$",
-    #     ],
-    #     [
-    #         "#Faults",
-    #         "#Behaviours",
-    #         "#Faulty Behaviours",
-    #         "FS Diversity",
-    #         "FFS Diversity",
-    #     ],
-    # )
-    # fig4.set_figwidth(15)
-    # fig4.set_figheight(15)
-    # fig4.tight_layout()
-    # # removes redundant x labels
-    # for i in [0, 1, 3]:
-    #     for ax in axs4[i]:
-    #         ax.set_xticklabels([])
-    # # removes redundant legends
-    # for i in [0, 2, 3, 4]:
-    #     axs4[i][-1].legend_ = None
-    # fig4.savefig("test_rq3.png")
+    # FIRST RUN the script `compute_n_analysis.py`
+    suffix = "MAE+MS"
+    for k in ["MAP-Elites", "Novelty Search"]:
+        colors_dict[k] = colors_dict[f"{k} {suffix}"]
+
+    data_folders = ["data_1", "data_new", "data_5", "data_10"]
+    env_seeds = [1, 3, 5, 10]
+
+    # FD
+    rq1_data = assemble_n_results(
+        data_folders=data_folders,
+        suffix=suffix,
+        metric="rq1"
+    )
+    fig = plot_n_results(
+        use_cases=use_cases,
+        env_seeds=env_seeds,
+        results=rq1_data,
+        colors_dict=colors_dict,
+    )[0]
+    fig.set_facecolor("white")
+    fig.savefig(f"n_rq1.png")
+
+    # EBS Coverage
+    ebs_data = assemble_n_results(
+        data_folders=data_folders,
+        suffix=suffix,
+        metric="bs_cov"
+    )
+    febs_data = assemble_n_results(
+        data_folders=data_folders,
+        suffix=suffix,
+        metric="fbs_cov"
+    )
+    fig = plot_n_results(
+        use_cases=use_cases,
+        env_seeds=env_seeds,
+        results=ebs_data,
+        colors_dict=colors_dict,
+        additional_results=febs_data
+    )[0]
+    fig.set_facecolor("white")
+    fig.savefig(f"n_ebs+febs_cov.png")
+
+    # FOBS Coverage
+    obs_data = assemble_n_results(
+        data_folders=data_folders,
+        suffix=suffix,
+        metric="obs_cov"
+    )
+    fobs_data = assemble_n_results(
+        data_folders=data_folders,
+        suffix=suffix,
+        metric="fobs_cov"
+    )
+    # removes Highway results in OBS cov
+    hw_data = obs_data[1]
+    for k in hw_data.keys():
+        hw_data[k] = []
+
+    fig = plot_n_results(
+        use_cases=use_cases,
+        env_seeds=env_seeds,
+        results=obs_data,
+        colors_dict=colors_dict,
+        additional_results=fobs_data
+    )[0]
+    fig.set_facecolor("white")
+    fig.savefig(f"n_obs+fobs_cov.png")
