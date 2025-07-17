@@ -1018,7 +1018,8 @@ def plot_n_results(
     env_seeds: List[int],
     results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]],
     colors_dict: Dict[str, Tuple],
-    additional_results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]] = None
+    additional_results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]] = None,
+    x_axis: str = "iterations"
 ):
     """
     Plots any statistical results for each use case and n.
@@ -1034,11 +1035,20 @@ def plot_n_results(
     results : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]]
         List of dictionaries whose keys are the names of the methods, and values are a list of statistical data (tuple of 3 numpy arrays of equal length); one for each n value.
         As such, the length of results must equal the one of `use_cases`, and all the values in all the dictionaries must be of length equal to one of `env_seeds`.
+    additional_results : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]], optinal
+        Additional results to show, cf. RQ2 and RQ3. Notably, the results are assumed to come from the same methods. They are plotted with dashed lines.
+    x_axis : str, optional
+        Mode for the x axis. Must be either:
+        - "iterations": no manipulation of the data.
+        - "executions": each value in the data is repeated w.r.t `env_seeds`.
+
+        Default to "iterations".
 
     Returns
     -------
     (fig, axes)
     """
+    assert x_axis in ["iterations", "executions"]
     assert len(use_cases) == len(results)
     if not all([l == len(env_seeds) for l in sum([[len(r) for r in d.values()] for d in results], [])]):
         warnings.warn("Not all the lists of results in `results`' dictionaries have |env_seeds| data...")
@@ -1048,18 +1058,28 @@ def plot_n_results(
         nrows=len(use_cases),
         ncols=len(env_seeds),
         figsize=(fig_size * len(env_seeds), fig_size * len(use_cases)),
-        sharex=True, sharey="row"
+        sharey="row",
+        # sharex=True
+        sharex=True if x_axis == "iterations" else "col"
     )
 
     if len(use_cases) == 1:
         axes = [axes]
-        axes[0].grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+        axes[0].grid(axis="both", color="0.9", linestyle="-", linewidth=1)
     else:
-        [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axes.flat]
+        [ax.grid(axis="both", color="0.9", linestyle="-", linewidth=1) for ax in axes.flat]
 
+    [ax.set_xlabel(f"#{x_axis.capitalize()}", fontsize=AXIS_LABEL_FONTSIZE) for ax in axes[-1]]
     [ax.set_title(f"N={n}", fontsize=AXIS_LABEL_FONTSIZE) for (ax, n) in zip(axes[0], env_seeds)]
-    [ax.set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE) for ax in axes[-1]]
     [ax.set_ylabel(case.capitalize(), fontsize=AXIS_LABEL_FONTSIZE) for (ax, case) in zip([a[0] for a in axes], use_cases)]
+
+    def _repeat_data(arr: np.ndarray, n: int):
+        return  np.array(
+            sum(
+                [[v for _ in range(n)] for v in arr],
+                []
+            )
+        )
 
     for (data, axs) in zip(results, axes):
         for name, res_list in data.items():
@@ -1067,7 +1087,15 @@ def plot_n_results(
                 ax = axs[i]
                 color = colors_dict[name]
                 label = name
-                x = np.arange(len(y))
+                if x_axis != "iterations":
+                    n = env_seeds[i]
+                    x = np.arange(len(y) * n)
+                    y = _repeat_data(y, n)
+                    perc_25 = _repeat_data(perc_25, n)
+                    perc_75 = _repeat_data(perc_75, n)
+                else:
+                    x = np.arange(len(y))
+
                 ax.plot(x, y, color=color, label=label, linewidth=2)
                 ax.fill_between(
                     x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
@@ -1080,14 +1108,27 @@ def plot_n_results(
                     ax = axs[i]
                     color = colors_dict[name]
                     label = name
-                    x = np.arange(len(y))
+                    if x_axis != "iterations":
+                        n = env_seeds[i]
+                        x = np.arange(len(y) * n)
+                        y = _repeat_data(y, n)
+                        perc_25 = _repeat_data(perc_25, n)
+                        perc_75 = _repeat_data(perc_75, n)
+                    else:
+                        x = np.arange(len(y))
+
                     ax.plot(x, y, color=color, linewidth=2, linestyle="dashed")
                     ax.fill_between(
                         x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
                     )
 
-
-
+    # xticks = np.arange(0, 1 + max([s for s in env_seeds]) * 5000, 5000)
+    # ax.set_xticks(
+    #     xticks
+    # )
+    # ax.set_xticklabels(
+    #     ["0"] + [f"{i}K" for i in range(1, len(xticks))]
+    #     )
     ax = axes[np.argmax([len(d.keys()) for d in results])][0]
     legend = ax.legend(
         prop={"size": 10},
@@ -1100,7 +1141,7 @@ def plot_n_results(
     legend_frame.set_facecolor("0.9")
     legend_frame.set_edgecolor("0.9")
     fig.tight_layout()
-    return (fig, axs)
+    return (fig, axes)
 
 
 #############################################################################################################
@@ -1560,6 +1601,7 @@ if __name__ == "__main__":
         env_seeds=env_seeds,
         results=rq1_data,
         colors_dict=colors_dict,
+        x_axis="executions"
     )[0]
     fig.set_facecolor("white")
     fig.savefig(f"n_rq1.png")
@@ -1580,7 +1622,8 @@ if __name__ == "__main__":
         env_seeds=env_seeds,
         results=ebs_data,
         colors_dict=colors_dict,
-        additional_results=febs_data
+        additional_results=febs_data,
+        x_axis="executions"
     )[0]
     fig.set_facecolor("white")
     fig.savefig(f"n_ebs+febs_cov.png")
@@ -1606,7 +1649,8 @@ if __name__ == "__main__":
         env_seeds=env_seeds,
         results=obs_data,
         colors_dict=colors_dict,
-        additional_results=fobs_data
+        additional_results=fobs_data,
+        x_axis="executions"
     )[0]
     fig.set_facecolor("white")
     fig.savefig(f"n_obs+fobs_cov.png")

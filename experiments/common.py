@@ -455,19 +455,22 @@ def assemble_n_results(
         case_results = [r[i] for r in all_results]
         # print(f"Found {len(case_results)} for use case {case}.")
         case_data = {k: [] for k in methods}
-        for d in case_results:
+        for f, d in enumerate(case_results):
             # print(case, list(d.keys()))
             for k in methods:
                 if k in d:
                     case_data[k].append(d[k])
                 else:
+                    # print(f"{k} not found in data folder \"{data_folders[f]}\" for case {case}...")
                     if k in ["MAP-Elites", "Novelty Search"]:
                         suffixed_key = f"{k} {suffix}"
                         if suffixed_key in d:
                             case_data[k].append(d[suffixed_key])
                             # print(f"Added suffixed data for {k} in {case}.")
+                        else:
+                            print(f"No data for {k} in {case} (folder \"{data_folders[f]}\").")
                     else:
-                        warnings.warn(f"No data for {k} in {case}.", RuntimeWarning)
+                        print(f"No data for {k} in {case} (folder \"{data_folders[f]}\").")
 
         # print(f"============= SUMMARY OF DATA FOR CASE {case} ================")
         # for k, v in case_data.items():
