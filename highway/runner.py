@@ -30,6 +30,12 @@ def parse_arguments():
         help="RL testing framework.",
     )
     parser.add_argument(
+        "--test_budget",
+        default=5000,
+        type=int,
+        help="Total number of iterations."
+    )
+    parser.add_argument(
         "--descriptors",
         type=str,
         required=True,
@@ -67,12 +73,14 @@ if __name__ == "__main__":
 
     seed_index = args.seed_index  # type: int
     n = args.env_seeds  # type: int
+    test_budget = args.test_budget  # type: int
 
     descriptors = args.descriptors  # type: Tuple[str, str]
     folder = args.log_folder  # type: str
 
     assert len(descriptors) == 2, len(descriptors)
     assert all([d in FEATURES for d in descriptors]), descriptors
+    assert test_budget > 1000, "The test budget must be superior to the one for the initialization one (1000)."
 
     assert n > 0, "Number of seeds for the environments must be superior to 0."
     if n > 10:
@@ -83,7 +91,6 @@ if __name__ == "__main__":
         )
 
     # experimental parameters
-    test_budget = 5000
     init_budget = 1000
     cell_granularity = 50
 
