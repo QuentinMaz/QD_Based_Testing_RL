@@ -101,7 +101,7 @@ if __name__ == "__main__":
     init_budget = 1000
     cell_granularity = 50
 
-    population_size, nb_iterations = 100, 50
+    nb_iterations = 50
     k = 3
     novelty_threshold = 0.005
 
@@ -168,6 +168,13 @@ if __name__ == "__main__":
         )
 
     elif method == "ns":
+        num_exec = test_budget * n
+        population_size = test_budget // nb_iterations
+        while (population_size * nb_iterations * n) < num_exec:
+            print(f"Adjusting the population size to {population_size + 1} to at least reach the required total number of executions ({num_exec})...")
+            population_size += 1
+
+        print(f"NS LOG: pop_size: {population_size}, (actual) test_budget: {population_size * nb_iterations * n}")
         framework.novelty_search(
             model,
             env_seeds,

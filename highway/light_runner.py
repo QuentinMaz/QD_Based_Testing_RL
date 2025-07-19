@@ -6,13 +6,12 @@ import sys
 import time
 from typing import Any, List, Tuple
 
-from hw_framework import (
+from light_framework import (
     Framework,
     ENV_SEEDS,
     EXPERIMENT_SEEDS,
     FEATURES
 )
-from mdpfuzz.mdpfuzz import Fuzzer
 
 import argparse
 
@@ -25,7 +24,7 @@ def parse_arguments():
     parser.add_argument(
         "--method",
         type=str,
-        choices=["mdpfuzz", "ns", "qd", "rt"],
+        choices=["qd", "rt"],
         required=True,
         help="RL testing framework.",
     )
@@ -94,10 +93,6 @@ if __name__ == "__main__":
     init_budget = 1000
     cell_granularity = 50
 
-    nb_iterations = 50
-    k = 3
-    novelty_threshold = 0.005
-
     # parameters / configurations from arguments
     assert (seed_index >= 0) and (seed_index < len(EXPERIMENT_SEEDS)), f"Seed index: {seed_index}..."
     seed = EXPERIMENT_SEEDS[seed_index]
@@ -130,46 +125,6 @@ if __name__ == "__main__":
         framework.test_policy(
             model, env_seeds, test_budget, init_budget, str(results_fp)
         )
-
-    elif method == "ns":
-        num_exec = test_budget * n
-        population_size = test_budget // nb_iterations
-        while (population_size * nb_iterations * n) < num_exec:
-            print(f"Adjusting the population size to {population_size + 1} to at least reach the required total number of executions ({num_exec})...")
-            population_size += 1
-
-        print(f"NS LOG: pop_size: {population_size}, (actual) test_budget: {population_size * nb_iterations * n}")
-        framework.novelty_search(
-            model,
-            env_seeds,
-            population_size,
-            nb_iterations,
-            k,
-            novelty_threshold,
-            str(results_fp),
-        )
-
-    elif method == "mdpfuzz":
-        from launch_mdpfuzz import MDPFuzzExecutor
-        executor = MDPFuzzExecutor(
-            sim_steps=800,
-            env_seeds=env_seeds,
-            log_path=str(results_fp)
-        )
-        fuzzer_logs_path = executor.fp + "_fuzzer"
-        executor.config["rand_seed"] = seed
-        fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)
-        fuzzer.fuzzing_no_coverage(
-                n=init_budget,
-                test_budget=test_budget, # 2*n will be removed since we assume that test_budget is the TOTAL budget
-                policy=model,
-                saving_path=fuzzer_logs_path,
-                local_sensitivity=True, # don"t re-run for computing the sensitivity
-                exp_name="Highway",
-                light_pool=True, # don"t log the inputs
-                save_logs_only=True # don"t save evaluated inputs
-            )
-        executor.clean()
 
     else:
         print("Unknown method.")
