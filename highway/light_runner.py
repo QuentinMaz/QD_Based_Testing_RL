@@ -79,7 +79,10 @@ if __name__ == "__main__":
 
     assert len(descriptors) == 2, len(descriptors)
     assert all([d in FEATURES for d in descriptors]), descriptors
-    assert test_budget > 1000, "The test budget must be superior to the one for the initialization one (1000)."
+    if method not in ["rt", "ns"] and (test_budget < 1000):
+        raise ValueError(
+            "The test budget must be superior to the one for the initialization one (1000)."
+        )
 
     assert n > 0, "Number of seeds for the environments must be superior to 0."
     if n > 10:

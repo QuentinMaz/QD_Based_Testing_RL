@@ -418,10 +418,7 @@ class Framework:
             for seed in env_seeds
         ]
 
-        executions_budget = test_budget - init_budget
-        print(
-            f"Total testing budget of {test_budget}, with {init_budget} iterations for the initialization."
-        )
+        print(f"Testing budget of {test_budget}.")
 
         if len(env_seeds) == 1:
             self.xedges, self.yedges = np.load("../experiments/grid/hw/edges.npy")
@@ -440,9 +437,9 @@ class Framework:
 
         start_time = time.time()
         nb_executions = 0
-        pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
+        pbar = tqdm.tqdm(total=test_budget, disable=disable_pbar)
 
-        while (nb_executions < executions_budget):
+        while (nb_executions < test_budget):
             input: np.ndarray = self.executor.generate_input(self.rng)
             t0 = time.time()
             episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
