@@ -237,10 +237,9 @@ class Framework:
             for seed in env_seeds
         ]
 
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget - init_budget if test_budget > 12 else 10000
+        executions_budget = test_budget - init_budget
         print(
-            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+            f"Total testing budget of {test_budget}, with {init_budget} iterations for the initialization."
         )
 
         inputs: List[np.ndarray] = []
@@ -318,14 +317,10 @@ class Framework:
             for eb_buffer, eb in zip(expert_behaviors_buffers, expert_behaviors[i]):
                 np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
-        start_time = time.time()
-        current_time = time.time()
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (
-            nb_executions < executions_budget
-        ):
+        while (nb_executions < executions_budget):
             cell_index = self.select_cell()
             self.last_cell_selected = cell_index
             input = self.select_input(cell_index)
@@ -364,7 +359,6 @@ class Framework:
             for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
                 np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
-            current_time = time.time()
             nb_executions += 1
             pbar.update(1)
 
@@ -424,10 +418,9 @@ class Framework:
             for seed in env_seeds
         ]
 
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget if test_budget > 12 else 10000
+        executions_budget = test_budget - init_budget
         print(
-            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+            f"Total testing budget of {test_budget}, with {init_budget} iterations for the initialization."
         )
 
         if len(env_seeds) == 1:
@@ -446,13 +439,10 @@ class Framework:
         self.config["yedges"] = list(self.xedges)
 
         start_time = time.time()
-        current_time = time.time()
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (
-            nb_executions < executions_budget
-        ):
+        while (nb_executions < executions_budget):
             input: np.ndarray = self.executor.generate_input(self.rng)
             t0 = time.time()
             episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
@@ -474,7 +464,6 @@ class Framework:
             for eb_buffer, eb in zip(expert_behaviors_buffers, behaviors_list):
                 np.savetxt(eb_buffer, eb.reshape(1, -1), delimiter=",")
 
-            current_time = time.time()
             nb_executions += 1
             pbar.update(1)
 
