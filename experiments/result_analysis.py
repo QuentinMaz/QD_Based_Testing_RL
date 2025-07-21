@@ -384,11 +384,11 @@ def plot_rq1_results(
         for name, data in data.items():
             color = colors_dict[name]
             label = name
-            if "MAE+MS" in label:
+            if "MAE+TS" in label:
                 linestyle = "dotted"
-            elif "MAE+ML" in label:
+            elif "MAE+TL" in label:
                 linestyle = "dashed"
-            elif "MAA+MS" in label:
+            elif "MAA+TS" in label:
                 linestyle = "dashdot"
             else:
                 linestyle = "solid"
@@ -786,11 +786,11 @@ def plot_coverage_results(
         for name in cov_results[u].keys():
             color = colors_dict[name]
             label = name
-            if "MAE+MS" in label:
+            if "MAE+TS" in label:
                 linestyle = "dotted"
-            elif "MAE+ML" in label:
+            elif "MAE+TL" in label:
                 linestyle = "dashed"
-            elif "MAA+MS" in label:
+            elif "MAA+TS" in label:
                 linestyle = "dashdot"
             else:
                 linestyle = "solid"
@@ -1484,7 +1484,7 @@ def load_data():
             descriptors = d["config"]["descriptors"]
             prefix = "M" if "mean" in descriptors[0] else "A"
             suffix = "S" if "spread" in descriptors[-1] else "L"
-            d["config"]["name"] += f" {prefix}AE+M{suffix}"
+            d["config"]["name"] += f" {prefix}AE+T{suffix}"
 
     return bw_results + ll_results + hw_results
 
@@ -1583,7 +1583,7 @@ if __name__ == "__main__":
     ####################### Heavy Stuff now: Impact of N on the previous results #######################
 
     # FIRST RUN the script `compute_n_analysis.py`
-    suffix = "MAE+MS"
+    suffix = "MAE+TS"
     for k in ["MAP-Elites", "Novelty Search"]:
         colors_dict[k] = colors_dict[f"{k} {suffix}"]
 

@@ -257,7 +257,6 @@ def retrieve_result(
     - "include_expert_behaviors": the dictionaries have the latter at the key `expert_behaviors`.
     """
     filepaths = [f"{filepath}_{k}.txt" for k in ["inputs", "behaviors", "cells"]]
-    filepaths.append(f"{filepath}_logs.txt")
     filepaths.append(f"{filepath}_data.csv")
 
     if not np.all([os.path.exists(fp) for fp in filepaths]):
@@ -267,7 +266,16 @@ def retrieve_result(
         k: np.loadtxt(f"{filepath}_{k}.txt", delimiter=",")
         for k in ["inputs", "behaviors", "cells"]
     }
-    result["logs"] = process_txt_log(f"{filepath}_logs.txt")[0]
+
+    if os.path.exists(f"{filepath}_logs.txt"):
+        logs = process_txt_log(f"{filepath}_logs.txt")[0]
+    elif os.path.exists(f"{filepath}_logs.csv"):
+        logs = pd.read_csv(f"{filepath}_logs.csv")
+    else:
+        warnings.warn(f"No logs file found for {filepath}.")
+        logs = pd.DataFrame()
+    result["logs"] = logs
+
     try:
         result["data"] = pd.read_csv(f"{filepath}_data.csv")
     except pd.errors.EmptyDataError:
@@ -278,7 +286,7 @@ def retrieve_result(
             result["config"] = json.load(f)
     except:
         result["config"] = {}
-        warnings.warn(f"No configuration found at {filepath}.")
+        warnings.warn(f"No configuration found at {filepath}.", RuntimeWarning)
 
     include_final_states = kwargs.get("include_final_states", False)
     if include_final_states:
@@ -441,7 +449,7 @@ def assemble_n_results(
         data_folders: List[str],
         methods=["MAP-Elites", "MDPFuzz", "Novelty Search", "Random Testing"],
         use_cases=["Bipedal Walker", "Highway", "Lunar Lander"],
-        suffix="MAE+MS",
+        suffix="MAE+TS",
         metric="bs_cov"
     ):
     assert metric in ["rq1", "bs_cov", "fbs_cov", "obs_cov", "fobs_cov"]
@@ -480,6 +488,57 @@ def assemble_n_results(
         assembled_data.append(case_data)
     return assembled_data
 
+
+def concatenate_results(d1: Dict, d2: Dict, size=5000):
+    keys = list(d1.keys())
+    for k in keys:
+        v = d1[k]
+        if isinstance(v, np.ndarray):
+            d1[k] = np.concatenate([d1[k], d2[k]], axis=0)[:size]
+            print(f"Key '{k}' adjusted to size {len(d1[k])}.")
+        if isinstance(v, pd.DataFrame):
+            d1[k] = pd.concat([d1[k], d2[k]])[:size]
+            print(f"Key '{k}' adjusted to size {len(d1[k])}.")
+        if isinstance(v, List):
+            assert all([isinstance(arr, np.ndarray) for arr in v]), f"Not all data in the list (entry '{k}') is numpy arrays..."
+            d1[k] = [
+                np.concatenate([d1[k][i], d2[k][i]], axis=0)[:size] for i in range(len(d1[k]))
+            ]
+            print(f"Key '{k}' adjusted to a list of {len(d1[k])} elements.")
+            print(f"Their respective lengths are '{[len(arr) for arr in d1[k]]}'.")
+    return d1
+
+
+def save_result(data: Dict, filepath: str, int_input: bool = False):
+    """Save a typical results dictionary. As done by the frameworks, the current date is appended to `filepath`."""
+    if int_input:
+        input_fmt = "%1.0f"
+    else:
+        input_fmt = "%.18e"
+
+    keys = list(data.keys())
+    t = time.time()
+    path = f"{filepath}{t}"
+    for k in keys:
+        v = data[k]
+
+        if k == "inputs":
+            np.savetxt(f"{path}_{k}.txt", v, fmt=input_fmt, delimiter=",")
+
+        # behaviors and cells
+        elif isinstance(v, np.ndarray):
+            np.savetxt(f"{path}_{k}.txt", v, delimiter=",")
+
+        elif isinstance(v, List):
+            assert all([isinstance(arr, np.ndarray) for arr in v])
+            [np.savetxt(f"{path}_{k}_{i}.txt", v[i], delimiter=",") for i in range(len(v))]
+
+        elif isinstance(v, pd.DataFrame):
+            v.to_csv(f"{path}_{k}.csv", index=(None if v.empty else 0))
+
+        elif isinstance(v, Dict):
+            with open(f"{path}_{k}.json", "w") as f:
+                json.dump(v, f)
 
 
 #################################################################################################
