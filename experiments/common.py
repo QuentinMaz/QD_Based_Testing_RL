@@ -489,6 +489,21 @@ def assemble_n_results(
     return assembled_data
 
 
+def reduce_results(data: Dict, size: int):
+    """Reduce a the data of a result dictionary to the input size `size`."""
+    assert size > 0
+    keys = list(data.keys())
+    for k in keys:
+        v = data[k]
+        if isinstance(v, np.ndarray) or isinstance(v, pd.DataFrame):
+            data[k] = v[:size]
+
+        if isinstance(v, List):
+            assert all([isinstance(arr, np.ndarray) for arr in v]), f"Not all data in the list (entry \"{k}\") is numpy arrays..."
+            data[k] = [v[i][:size] for i in range(len(v))]
+    return data
+
+
 def concatenate_results(d1: Dict, d2: Dict, size=5000):
     keys = list(d1.keys())
     for k in keys:

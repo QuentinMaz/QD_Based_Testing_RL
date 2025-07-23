@@ -30,6 +30,7 @@ FAULT_LABEL = "#Faults"
 AXIS_LABEL_FONTSIZE = 17
 TITLE_LABEL_FONTSIZE = 18
 
+USE_CASES = ["Bipedal Walker", "Highway", "Lunar Lander"]
 
 #################################################################################################################################
 ############################################################## HELPERS ##########################################################
@@ -537,11 +538,13 @@ def compute_relative_performance(
 
 def legend_axis(ax):
     legend = ax.legend(
-        prop={"size": 10},
-        labelspacing=1.1,
-        handletextpad=1.05,
-        borderpad=1.05,
+        prop={"size": 11},
+        ncol=2,
+        labelspacing=1.05,
+        handletextpad=1.025,
+        borderpad=1.025,
         borderaxespad=1.0,
+        loc="upper left"
     )
     legend_frame = legend.get_frame()
     legend_frame.set_facecolor("0.9")
@@ -580,6 +583,10 @@ def plot_coverage_results(
         for name in cov_results[u].keys():
             color = colors_dict[name]
             label = name
+            if "MAP-Elites" in label:
+                label = label.replace("MAP-Elites", "ME")
+            if "Novelty Search" in label:
+                label = label.replace("Novelty Search", "NS")
             if "MAE+LS" in label:
                 linestyle = "dotted"
             elif "MAE+ML" in label:
@@ -1110,7 +1117,12 @@ def load_data():
 
     return bw_results + ll_results + hw_results
 
-def fetch_data(folder_name: str):
+def fetch_result_data(folder_name: str):
+    """
+    Returns all the results found in the local folder `folder_name`.
+
+    **It assumes that the same folder exists in ../highway/**.
+    """
     use_cases = ["bw", "ll"]
     methods = ["ns", "rt", "mdpfuzz", "qd"]
 
@@ -1191,8 +1203,8 @@ if __name__ == "__main__":
     for line in legend.get_lines():
         plt.setp(line, linewidth=4)
     for ax in axs2.flat:
-        ax.tick_params(axis="both",labelsize=12)
-    fig2.savefig("rq21_ebs.png")
+        ax.tick_params(axis="both", labelsize=12)
+    fig2.savefig("rq21.png")
 
     fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
     axs2[0][-1].legend_ = None
@@ -1201,82 +1213,11 @@ if __name__ == "__main__":
     for line in legend.get_lines():
         plt.setp(line, linewidth=4)
     for ax in axs2.flat:
-        ax.tick_params(axis="both",labelsize=12)
-    fig2.savefig("rq22_obs.png")
+        ax.tick_params(axis="both", labelsize=12)
+    fig2.savefig("rq22.png")
 
-    exit(0)
 
-    ####################### Heavy Stuff now: Impact of N on the previous results #######################
+    with open("colors_dict.json", "w") as file:
+        json.dump(colors_dict, file)
 
-    # FIRST RUN the script `compute_n_analysis.py`
-    suffix = "MAE+LS"
-    for k in ["MAP-Elites", "Novelty Search"]:
-        colors_dict[k] = colors_dict[f"{k} {suffix}"]
-
-    data_folders = ["data_1", "data_new", "data_5", "data_10"]
-    env_seeds = [1, 3, 5, 10]
-
-    # FD
-    rq1_data = assemble_n_results(
-        data_folders=data_folders,
-        suffix=suffix,
-        metric="rq1"
-    )
-    fig = plot_n_results(
-        use_cases=use_cases,
-        env_seeds=env_seeds,
-        results=rq1_data,
-        colors_dict=colors_dict,
-        x_axis="executions"
-    )[0]
-    fig.set_facecolor("white")
-    fig.savefig(f"n_rq1.png")
-
-    # EBS Coverage
-    ebs_data = assemble_n_results(
-        data_folders=data_folders,
-        suffix=suffix,
-        metric="bs_cov"
-    )
-    febs_data = assemble_n_results(
-        data_folders=data_folders,
-        suffix=suffix,
-        metric="fbs_cov"
-    )
-    fig = plot_n_results(
-        use_cases=use_cases,
-        env_seeds=env_seeds,
-        results=ebs_data,
-        colors_dict=colors_dict,
-        additional_results=febs_data,
-        x_axis="executions"
-    )[0]
-    fig.set_facecolor("white")
-    fig.savefig(f"n_ebs+febs_cov.png")
-
-    # FOBS Coverage
-    obs_data = assemble_n_results(
-        data_folders=data_folders,
-        suffix=suffix,
-        metric="obs_cov"
-    )
-    fobs_data = assemble_n_results(
-        data_folders=data_folders,
-        suffix=suffix,
-        metric="fobs_cov"
-    )
-    # removes Highway results in OBS cov
-    hw_data = obs_data[1]
-    for k in hw_data.keys():
-        hw_data[k] = []
-
-    fig = plot_n_results(
-        use_cases=use_cases,
-        env_seeds=env_seeds,
-        results=obs_data,
-        colors_dict=colors_dict,
-        additional_results=fobs_data,
-        x_axis="executions"
-    )[0]
-    fig.set_facecolor("white")
-    fig.savefig(f"n_obs+fobs_cov.png")
+    print("DONE.")
