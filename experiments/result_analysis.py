@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import warnings
 from typing import Dict, Iterable, List, Tuple, Union
 
@@ -26,12 +27,8 @@ from common import (
 )
 
 FAULT_LABEL = "#Faults"
-BS_LABEL = "#BS"
-FBS_LABEL = "#FBS"
-KNN_LABEL = "Final State Diversity"
-FKNN_LABEL = "Failure State Diversity"
-AXIS_LABEL_FONTSIZE = 15
-TITLE_LABEL_FONTSIZE = 16
+AXIS_LABEL_FONTSIZE = 17
+TITLE_LABEL_FONTSIZE = 18
 
 
 #################################################################################################################################
@@ -384,11 +381,11 @@ def plot_rq1_results(
         for name, data in data.items():
             color = colors_dict[name]
             label = name
-            if "MAE+TS" in label:
+            if "MAE+LS" in label:
                 linestyle = "dotted"
-            elif "MAE+TL" in label:
+            elif "MAE+ML" in label:
                 linestyle = "dashed"
-            elif "MAA+TS" in label:
+            elif "AAE+LS" in label:
                 linestyle = "dashdot"
             else:
                 linestyle = "solid"
@@ -402,9 +399,10 @@ def plot_rq1_results(
                     x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
                 )
 
-    ax = axs[np.argmax([len(d.keys()) for d in results])]
+    # ax = axs[np.argmax([len(d.keys()) for d in results])]
+    ax = axs[-1]
     legend = ax.legend(
-        prop={"size": 10},
+        prop={"size": 12},
         labelspacing=1.1,
         handletextpad=1.05,
         borderpad=1.05,
@@ -425,210 +423,6 @@ def compute_evolution_cells(data: List[pd.DataFrame]):
     """Computes the number of cells discovered over search iterations."""
     results = [df["nb_cells"].to_numpy() for df in data]
     return results
-
-
-def compute_mean_knn(results: List[Dict], knn: int = 3, computation_steps: int = 50):
-    """Updated version, for which there is no redundant data anymore and the statistical analysis is done over all the lists of final states per (method, use case)."""
-    use_cases: List[str] = np.unique(
-        [d["config"]["use_case"] for d in results]
-    ).tolist()
-    methods_names: List[str] = np.unique(
-        [d["config"]["name"] for d in results]
-    ).tolist()
-    seeds: List[int] = np.unique([d["config"]["rand_seed"] for d in results]).tolist()
-
-    # print(use_cases)
-    # print(methods_names)
-    # print(seeds)
-
-    # LinearSegmentedColormap
-    cmap = plt.cm.jet
-    rgba_colors = [cmap(i) for i in np.linspace(0, 1, len(methods_names))]
-    # colors of each method name
-    colors_dict = {n: c for n, c in zip(methods_names, rgba_colors)}
-
-    assert computation_steps > 0
-
-    # re-aranges the results per use_case
-    use_cases_dict: Dict[str, Dict[str, List]] = {}
-    for case in use_cases:
-        use_cases_dict[case] = {}
-        for name in methods_names:
-            # case's results
-            sub_results = [
-                d
-                for d in results
-                if (d["config"]["use_case"].startswith(case))
-                and (d["config"]["name"] == name)
-            ]
-            use_cases_dict[case].update({name: sub_results})
-        # logs
-        # print(f"For {case}:")
-        # for k, v in use_cases_dict[case].items():
-        #     print(k, len(v), np.unique([d["config"]["rand_seed"] for d in v]).tolist())
-        # print("----------------------------------------------")
-
-    def dist(arr: np.ndarray, knn: int) -> np.ndarray:
-        # to handle integer data of Taxi
-        if len(arr.shape) == 1:
-            arr = arr.reshape(-1, 1)
-        data = np.unique(arr, axis=0)
-        neighbors = NearestNeighbors(n_neighbors=knn).fit(data)
-        distances, _ = neighbors.kneighbors()
-        return np.mean(distances, axis=1)
-
-    def statistical_dists(arr_list: List[np.ndarray], knn: int, steps: Iterable = None):
-        """Compute the knn distances for step in ``steps``.
-
-        Parameters
-        ----------
-        arr_list : List[np.ndarray]
-            List of final states (resulting from a same method).
-        steps : Iterable, optional
-            The step values. If not provided, the steps are set to every ``computation_steps``.
-
-        Returns
-        -------
-        medians : List[np.ndarray]
-            The median values for each data in `arr_list`, as numpy arrays of `steps` size.
-        q1s : List[np.ndarray]
-            The first quantile values for each data in `arr_list`, as numpy arrays of `steps` size.
-        q3s : List[np.ndarray]
-            The third quantile values for each data in `arr_list`, as numpy arrays of `steps` size.
-        steps : Iterable
-            The input `steps`, or the range object used if `steps` is not provided.
-        """
-        if steps is None:
-            max_length = np.max([len(arr) for arr in arr_list])
-            steps = range(computation_steps - 1, max_length, computation_steps)
-
-        medians, q1s, q3s = [], [], []
-        for arr in arr_list:
-            dists_list = [dist(arr[:step], knn) for step in steps]
-            medians.append(np.array([np.median(d) for d in dists_list]))
-            q1s.append(np.array([np.quantile(d, 0.25) for d in dists_list]))
-            q3s.append(np.array([np.quantile(d, 0.75) for d in dists_list]))
-        return medians, q1s, q3s, steps
-
-    def statistical_dists_splits(
-        data_list: List[List[np.ndarray]], knn: int = 5
-    ) -> List[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Same as `statistical_dists` but the final states numpy arrays are already split into a list of numpy arrays."""
-        medians, q1s, q3s = [], [], []
-        for data in data_list:
-            mean_distances_list = [knn_dists(d, knn) for d in data]
-            # uses nan version (knn_dists can return np.nan)
-            medians.append(
-                np.array(
-                    [
-                        np.median(d) if isinstance(d, np.ndarray) else np.nan
-                        for d in mean_distances_list
-                    ]
-                )
-            )
-            q1s.append(
-                np.array(
-                    [
-                        np.quantile(d, 0.25) if isinstance(d, np.ndarray) else np.nan
-                        for d in mean_distances_list
-                    ]
-                )
-            )
-            q3s.append(
-                np.array(
-                    [
-                        np.quantile(d, 0.75) if isinstance(d, np.ndarray) else np.nan
-                        for d in mean_distances_list
-                    ]
-                )
-            )
-        return medians, q1s, q3s
-
-    # dict of (the means of) the medians and quantiles for all methodologies per use-case
-    results_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
-    # similar data but with distinct fault-triggering final states
-    fresults_dicts: List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]] = []
-    # the first indices to plot the results above (since there is no guarantee to have such final state data in the first splits)
-    x_starts_dicts = []
-    for case in use_cases:
-        # results of all methodologies
-        method_result_dict = {}
-        method_fresult_dict = {}
-        x_starts_dict = {}
-        for method_name, sub_results in use_cases_dict[case].items():
-            if len(sub_results) == 0:
-                print(
-                    f"No result found for use-case {case} and methodology {method_name}"
-                )
-                continue
-
-            fs_list = []
-            oracles_list = []
-            for d in sub_results:
-                fs_list.extend(d["final_states"])
-                # copies the oracle flags for each list
-                for _ in range(len(d["final_states"])):
-                    oracles_list.append(d["logs"]["oracle"].to_numpy().copy())
-
-            assert len(fs_list) == len(oracles_list)
-            print(f"For ({case}, {method_name}), found a total of {len(fs_list)} final states lists.")
-
-            # final states
-            print("starting statistical computations over the list of FS...")
-            medians, q1s, q3s, x = statistical_dists(fs_list, knn)
-            medians = np.vstack(medians)
-            q1s = np.vstack(q1s)
-            q3s = np.vstack(q3s)
-            # reduces the distribution of the data (medians and quantiles) to their mean
-            mmedians = np.mean(medians, axis=0)
-            mq1s = np.mean(q1s, axis=0)
-            mq3s = np.mean(q3s, axis=0)
-            method_result_dict[method_name] = (mmedians, mq1s, mq3s)
-
-            # distinct fault-triggering data filtering
-            max_length = np.max([len(fs) for fs in fs_list])
-            x = range(computation_steps - 1, max_length, computation_steps)
-            x_starts = []
-            final_states_splits = []
-            for fs, oracle_mask in zip(fs_list, oracles_list):
-                mask = filter_data([oracle_mask], [fs])[0][2]
-                if sum(mask) <= knn:
-                    warnings.warn(
-                        f"Not enough (unique) faults for ({case}, {method_name}). Continuing...",
-                        RuntimeWarning,
-                    )
-                    continue
-                indices = np.ravel(np.argwhere(mask))
-                # the start index is thus the index from which there are (nb neighbors + 1) faulty final states before
-                start_index = indices[knn]
-                # print(f'{case} {method_name}: enough faults from index {start_index}.')
-                x_starts.append(start_index)
-                split = [
-                    (
-                        fs[: (step + 1)][mask[: (step + 1)]]
-                        if step > start_index
-                        else np.nan
-                    )
-                    for step in x
-                ]
-                final_states_splits.append(split)
-            if x_starts == []:
-                raise ValueError(
-                    f"No unique fault was found in any final states lists for ({case}, {method_name})."
-                )
-            x_starts_dict[method_name] = np.min(x_starts)
-            print("starting statistical computations over the list of FS splits...")
-            medians, q1s, q3s = statistical_dists_splits(final_states_splits, knn)
-            # with warnings.catch_warnings():
-            mmedians = np.nanmean(medians, axis=0)
-            mq1s = np.nanmean(q1s, axis=0)
-            mq3s = np.nanmean(q3s, axis=0)
-            method_fresult_dict[method_name] = (mmedians, mq1s, mq3s)
-
-        results_dicts.append(method_result_dict)
-        fresults_dicts.append(method_fresult_dict)
-        x_starts_dicts.append(x_starts_dict)
-    return use_cases, results_dicts, fresults_dicts, x_starts_dicts, colors_dict
 
 
 def load_obs_space_edges(use_case: str, num_bins: int = 20) -> np.ndarray:
@@ -766,7 +560,7 @@ def plot_coverage_results(
     nb_use_cases = len(use_cases)
 
     fig, axs = plt.subplots(
-        nrows=nb_use_cases, ncols=2, figsize=(10, 4 * nb_use_cases), sharex=True
+        nrows=nb_use_cases, ncols=2, figsize=(11, 5 * nb_use_cases), sharex=True
     )
     if nb_use_cases == 1:
         axs = [axs]
@@ -786,11 +580,11 @@ def plot_coverage_results(
         for name in cov_results[u].keys():
             color = colors_dict[name]
             label = name
-            if "MAE+TS" in label:
+            if "MAE+LS" in label:
                 linestyle = "dotted"
-            elif "MAE+TL" in label:
+            elif "MAE+ML" in label:
                 linestyle = "dashed"
-            elif "MAA+TS" in label:
+            elif "AAE+LS" in label:
                 linestyle = "dashdot"
             else:
                 linestyle = "solid"
@@ -833,184 +627,10 @@ def plot_rq2_fobs_results(
     faulty_fobs_results: List[Dict[str, np.ndarray]],
 ):
     fig, axs = plot_coverage_results(use_cases, colors_dict, fobs_results, faulty_fobs_results)
-    axs[0][0].set_title("#Final Obs Coverage", fontsize=TITLE_LABEL_FONTSIZE)
-    axs[0][1].set_title("#Faulty Final Obs Coverage", fontsize=AXIS_LABEL_FONTSIZE)
+    axs[0][0].set_title("#Final States", fontsize=TITLE_LABEL_FONTSIZE)
+    axs[0][1].set_title("#Faulty Final States", fontsize=AXIS_LABEL_FONTSIZE)
     fig.tight_layout()
     return fig, axs
-
-
-def plot_rq2_fs_results(
-    use_cases: List[str],
-    colors_dict: Dict[str, Tuple],
-    knn_results: List[Dict[str, Union[Tuple, np.ndarray]]],
-    fknn_results: List[Dict[str, Union[Tuple, np.ndarray]]],
-    computation_steps: int = 200,
-    x_index: int = 0,
-):
-    """Plots the knn results for RQ2."""
-
-    nb_use_cases = len(use_cases)
-
-    fig, axs = plt.subplots(
-        nrows=nb_use_cases,
-        ncols=2,
-        figsize=(10, 4 * nb_use_cases),
-        sharex=True,
-        sharey="row",
-    )
-    if nb_use_cases == 1:
-        axs = [axs]
-        [
-            ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-            for ax in axs[0].flat
-        ]
-    else:
-        [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
-
-    axs[0][0].set_title(KNN_LABEL, fontsize=TITLE_LABEL_FONTSIZE)
-    axs[0][1].set_title(FKNN_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
-    axs[-1][0].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
-    axs[-1][1].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
-
-    x = np.arange((1 + x_index) * computation_steps - 1, 5000, computation_steps)
-
-    for u in range(nb_use_cases):
-        case = use_cases[u]
-        axs[u][0].set_ylabel(case, fontsize=AXIS_LABEL_FONTSIZE)
-        for name in knn_results[u].keys():
-            color = colors_dict[name]
-            label = name
-
-            ax = axs[u][0]
-            data = knn_results[u][name]
-            if isinstance(data, np.ndarray):
-                ax.plot(x, data[x_index:], color=color, label=label)
-            else:
-                y, perc_25, perc_75 = data
-                ax.plot(x, y[x_index:], color=color, label=label)
-                ax.fill_between(
-                    x,
-                    perc_25[x_index:],
-                    perc_75[x_index:],
-                    alpha=0.15,
-                    linewidth=0,
-                    color=color,
-                )
-            legend = ax.legend(
-                prop={"size": 10},
-                labelspacing=1.1,
-                handletextpad=1.05,
-                borderpad=1.05,
-                borderaxespad=1.0,
-            )
-            legend_frame = legend.get_frame()
-            legend_frame.set_facecolor("0.9")
-            legend_frame.set_edgecolor("0.9")
-            ax = axs[u][1]
-            data2 = fknn_results[u][name]
-            if isinstance(data2, np.ndarray):
-                ax.plot(x, data2[x_index:], color=color, label=label)
-            else:
-                y, perc_25, perc_75 = data2
-                ax.plot(x, y[x_index:], color=color, label=label)
-                ax.fill_between(
-                    x,
-                    perc_25[x_index:],
-                    perc_75[x_index:],
-                    alpha=0.15,
-                    linewidth=0,
-                    color=color,
-                )
-            legend = ax.legend(
-                prop={"size": 10},
-                labelspacing=1.1,
-                handletextpad=1.05,
-                borderpad=1.05,
-                borderaxespad=1.0,
-            )
-            legend_frame = legend.get_frame()
-            legend_frame.set_facecolor("0.9")
-            legend_frame.set_edgecolor("0.9")
-    fig.tight_layout()
-    for ax in axs[-1]:
-        ax.set_xticks(np.arange((1 + x_index) * computation_steps, 5001, 1000))
-    return (fig, axs)
-
-
-def plot_rq3_results(
-    data_lists: List[List[Dict]],
-    colors_dict: Dict[str, Tuple[float]],
-    xranges: List[Iterable],
-    use_cases: List[str] = None,
-    ylabels: List[str] = None,
-):
-    """
-    Convenient function that plots row-wise all the data provided, where the use-cases are displayed column-wise.
-    The data is assumed to be lists of results per use-case.
-    As such:
-    - nrows is the length of ``data_lists``, i.e., the number of different results to show.
-    - ncols is either the length of ``use_cases`` (if provided), or the maximum length of the lists in ``data_lists``.
-    """
-    if use_cases is None:
-        use_cases = np.arange(np.max([len(l) for l in data_lists]))
-
-    nrows = len(data_lists)
-    ncols = len(use_cases)
-
-    sharex = "all"
-    if not np.all([len(r) == xranges[0] for r in xranges[1:]]):
-        sharex = "none"
-
-    fig, axs = plt.subplots(
-        nrows=nrows,
-        ncols=ncols,
-        figsize=(4 * nrows, 5 * ncols),
-        sharex=sharex,
-        sharey="row",
-    )
-
-    if ylabels is None:
-        ylabels = ["" for _ in range(nrows)]
-    for ax in axs.flat:
-        ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-
-    for r, data in enumerate(data_lists):
-        axs[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
-        x = xranges[r]
-        for c in range(ncols):
-            ax = axs[r][c]
-            case_dict = data[c]
-            for name in case_dict.keys():
-                to_plot = case_dict[name]
-                color = colors_dict[name]
-                label = name
-                if isinstance(to_plot, np.ndarray):
-                    assert len(x) == len(to_plot)
-                    ax.plot(x, to_plot, color=color, label=label)
-                else:
-                    assert np.all([len(x) == len(tmp) for tmp in to_plot])
-                    y, perc_25, perc_75 = to_plot
-                    ax.plot(x, y, color=color, label=label)
-                    ax.fill_between(
-                        x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-                    )
-        ax = axs[r][-1]
-        legend = ax.legend(
-            prop={"size": 10},
-            labelspacing=1.1,
-            handletextpad=1.05,
-            borderpad=1.05,
-            borderaxespad=1.0,
-        )
-        legend_frame = legend.get_frame()
-        legend_frame.set_facecolor("0.9")
-        legend_frame.set_edgecolor("0.9")
-    for c in range(ncols):
-        axs[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
-    fig.tight_layout()
-
-    return (fig, axs)
-
 
 
 def plot_n_results(
@@ -1480,11 +1100,13 @@ def load_data():
     ]
     # renames the QD-based methods w.r.t the descriptor pair used
     for d in ll_results + bw_results + hw_results:
+        if "name" not in d["config"]:
+            d["config"]["name"] = "MDPFuzz"
         if d["config"]["name"] in ["MAP-Elites", "Novelty Search"]:
             descriptors = d["config"]["descriptors"]
             prefix = "M" if "mean" in descriptors[0] else "A"
-            suffix = "S" if "spread" in descriptors[-1] else "L"
-            d["config"]["name"] += f" {prefix}AE+T{suffix}"
+            suffix = "LS" if "spread" in descriptors[-1] else "ML"
+            d["config"]["name"] += f" {prefix}AE+{suffix}"
 
     return bw_results + ll_results + hw_results
 
@@ -1540,8 +1162,7 @@ if __name__ == "__main__":
     folder = "data_new"
     for case in use_cases:
         sub_folder = f"{folder}/{case}"
-        if not os.path.exists(sub_folder):
-            os.mkdir(sub_folder)
+        Path(sub_folder).mkdir(parents=True, exist_ok=True)
 
     dump_results(rq1_data, [f"{folder}/{case}/rq1" for case in use_cases])
     dump_results(ebs_cov, [f"{folder}/{case}/bs_cov" for case in use_cases])
@@ -1549,41 +1170,46 @@ if __name__ == "__main__":
 
     # final observation coverage
     cases, obs_coverage_results, fobs_coverage_results = compute_obs_coverage(first_results)
-    for case, obs_cov, fobs_cov in zip(cases, obs_coverage_results, fobs_coverage_results):
-        dump_results([obs_cov], [f"{folder}/{case}/obs_cov"])
-        dump_results([fobs_cov], [f"{folder}/{case}/fobs_cov"])
+    dump_results(obs_coverage_results, [f"{folder}/{case}/obs_cov" for case in cases])
+    dump_results(fobs_coverage_results, [f"{folder}/{case}/fobs_cov" for case in cases])
 
     ########################### Plotting ###########################
 
     fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
     for ax in axs1.flat:
+        ax.tick_params(axis="both",labelsize=13)
         legend = ax.legend_
         if legend is not None:
             for line in legend.get_lines():
                 plt.setp(line, linewidth=4)
-    fig1.savefig("test_rq1.png")
+    fig1.savefig("rq1.png")
 
     fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, efbs_cov)
     axs2[0][-1].legend_ = None
-    axs2[-1][-1].legend_ = None
-    legend = axs2[1][-1].legend_
+    axs2[1][-1].legend_ = None
+    legend = axs2[-1][-1].legend_
     for line in legend.get_lines():
         plt.setp(line, linewidth=4)
-    fig2.savefig("test_rq22_ebs.png")
+    for ax in axs2.flat:
+        ax.tick_params(axis="both",labelsize=12)
+    fig2.savefig("rq21_ebs.png")
 
     fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
     axs2[0][-1].legend_ = None
-    axs2[-1][-1].legend_ = None
-    legend = axs2[1][-1].legend_
+    axs2[1][-1].legend_ = None
+    legend = axs2[-1][-1].legend_
     for line in legend.get_lines():
         plt.setp(line, linewidth=4)
-    fig2.savefig("test_rq22_fobs.png")
+    for ax in axs2.flat:
+        ax.tick_params(axis="both",labelsize=12)
+    fig2.savefig("rq22_obs.png")
 
+    exit(0)
 
     ####################### Heavy Stuff now: Impact of N on the previous results #######################
 
     # FIRST RUN the script `compute_n_analysis.py`
-    suffix = "MAE+TS"
+    suffix = "MAE+LS"
     for k in ["MAP-Elites", "Novelty Search"]:
         colors_dict[k] = colors_dict[f"{k} {suffix}"]
 
