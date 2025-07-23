@@ -449,7 +449,7 @@ def assemble_n_results(
         data_folders: List[str],
         methods=["MAP-Elites", "MDPFuzz", "Novelty Search", "Random Testing"],
         use_cases=["Bipedal Walker", "Highway", "Lunar Lander"],
-        suffix="MAE+TS",
+        suffix="MAE+LS",
         metric="bs_cov"
     ):
     assert metric in ["rq1", "bs_cov", "fbs_cov", "obs_cov", "fobs_cov"]
