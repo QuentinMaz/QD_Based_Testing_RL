@@ -11,6 +11,7 @@ from mdpfuzz.executor import Executor
 from mdpfuzz.mdpfuzz import Fuzzer
 
 from framework import Framework
+from gym.envs.box2d.lunar_lander4 import H
 
 DEFAULT_MIN = -1000
 DEFAULT_MAX = 1000
@@ -24,12 +25,32 @@ class LLFramework(Framework):
         self.action_bins = 4  # type: int
         self.path_to_measures_extrema = "grid/ll/measures.csv"  # type: str
         self.use_case = "Lunar Lander"
+        self.input_space = kwargs.get("input_space", "force")
 
-    def generate_input(self, **kwargs):
+    def _generate_force(self, **kwargs):
         return self.rng.uniform(low=DEFAULT_MIN, high=DEFAULT_MAX, size=2)
 
-    def generate_inputs(self, n, **kwargs):
+    def _generate_forces(self, n, **kwargs):
         return self.rng.uniform(low=DEFAULT_MIN, high=DEFAULT_MAX, size=(n, 2))
+
+    def _generate_heights(self, n: int = 1) -> np.ndarray:
+        if n == 1:
+            return self.rng.uniform(0, H / 2, size=8)
+        else:
+            return self.rng.uniform(0, H / 2, size=(n, 8))
+
+    def generate_input(self, **kwargs):
+        if self.input_space == "force":
+            return self._generate_force()
+        else:
+            return self._generate_heights()
+
+    def generate_inputs(self, n, **kwargs):
+        if self.input_space == "force":
+            return self._generate_forces()
+        else:
+            return self._generate_heights(n)
+
 
     def mutate(self, input, **kwargs):
         return np.clip(
@@ -40,7 +61,11 @@ class LLFramework(Framework):
 
     def execute_policy(self, input, model, env_seed, deterministic=True, render=False):
         t0 = time.time()
-        env: gym.Env = gym.make("LunarLander-v3")
+        if self.input_space == "force":
+            env: gym.Env = gym.make("LunarLander-v3")
+        else:
+            env: gym.Env = gym.make("LunarLander-v4")
+
         env.seed(env_seed)
         obs = env.reset(input)
         state = None

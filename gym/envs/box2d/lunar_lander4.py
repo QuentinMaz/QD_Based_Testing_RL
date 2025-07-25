@@ -28,6 +28,7 @@ Created by Oleg Klimov. Licensed on the same terms as the rest of OpenAI Gym.
 
 import math
 import sys
+from typing import List, Tuple
 import numpy as np
 
 import Box2D
@@ -63,6 +64,11 @@ SIDE_ENGINE_AWAY = 12.0
 
 VIEWPORT_W = 600
 VIEWPORT_H = 400
+
+# terrain
+W = VIEWPORT_W / SCALE
+H = VIEWPORT_H / SCALE
+CHUNKS = 11
 
 
 class ContactDetector(contactListener):
@@ -117,7 +123,7 @@ class LunarLanderV4(gym.Env, EzPickle):
             # Nop, fire left engine, main engine, right engine
             self.action_space = spaces.Discrete(4)
 
-        self.reset()
+        # self.reset()
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -135,6 +141,49 @@ class LunarLanderV4(gym.Env, EzPickle):
         self.world.DestroyBody(self.legs[0])
         self.world.DestroyBody(self.legs[1])
 
+
+    def _create_terrain(self, heights: np.ndarray) -> Tuple[List[float], List[float]]:
+        """
+        Heights are CHUNKS - 3 (= 8 default) vectors whose first and last values encode
+        the heights of the left and right parts landscape (around the pad) respectively.
+        """
+        assert len(heights) == (CHUNKS - 3)
+
+        # def soft_smooth(left: np.ndarray, right: np.ndarray, y: float):
+        #     smooth_left = [np.mean(left[i:i+2]) for i in range(3)]
+        #     smooth_left += [np.mean([left[-2], left[-1], y])]
+
+        #     smooth_right = [np.mean([y, right[0], right[1]])]
+        #     smooth_right += [np.mean(right[i:i+2]) for i in range(3)]
+
+        #     assert len(smooth_left)==len(smooth_right)==4
+        #     pad = [y, y, y]
+        #     smooth_y = smooth_left + pad + smooth_right
+        #     assert len(smooth_y)==11
+        #     return smooth_y
+
+        def hard_smooth(left: np.ndarray, right: np.ndarray, y: float):
+            smooth_left = [np.mean(left[i : i + 2]) for i in range(3)]
+            smooth_left += [np.mean([left[-1], y])]
+
+            smooth_right = [np.mean([y, right[0]])]
+            smooth_right += [np.mean(right[i : i + 2]) for i in range(3)]
+
+            assert len(smooth_left) == len(smooth_right) == 4
+            pad = [y, y, y]
+            smooth_y = smooth_left + pad + smooth_right
+            assert len(smooth_y) == CHUNKS
+            return smooth_y
+
+        chunk_x = [W / (CHUNKS - 1) * i for i in range(CHUNKS)]
+        self.helipad_x1 = chunk_x[CHUNKS // 2 - 1]
+        self.helipad_x2 = chunk_x[CHUNKS // 2 + 1]
+        self.helipad_y = H / 4  # as the original
+        smooth_y = hard_smooth(heights[:4], heights[4:], self.helipad_y)
+
+        # print(smooth_y)
+        return chunk_x, smooth_y
+
     def reset(self, states=None):
         self._destroy()
         self.world.contactListener_keepref = ContactDetector(self)
@@ -142,25 +191,12 @@ class LunarLanderV4(gym.Env, EzPickle):
         self.game_over = False
         self.prev_shaping = None
 
-        W = VIEWPORT_W / SCALE
-        H = VIEWPORT_H / SCALE
 
-        # terrain
-        CHUNKS = 11
-        height = self.np_random.uniform(0, H / 2, size=(CHUNKS + 1,))
-        chunk_x = [W / (CHUNKS - 1) * i for i in range(CHUNKS)]
-        self.helipad_x1 = chunk_x[CHUNKS // 2 - 1]
-        self.helipad_x2 = chunk_x[CHUNKS // 2 + 1]
-        self.helipad_y = H / 4
-        height[CHUNKS // 2 - 2] = self.helipad_y
-        height[CHUNKS // 2 - 1] = self.helipad_y
-        height[CHUNKS // 2 + 0] = self.helipad_y
-        height[CHUNKS // 2 + 1] = self.helipad_y
-        height[CHUNKS // 2 + 2] = self.helipad_y
-        smooth_y = [
-            0.33 * (height[i - 1] + height[i + 0] + height[i + 1])
-            for i in range(CHUNKS)
-        ]
+        # create the terrain
+        heights = states
+        chunk_x, smooth_y = self._create_terrain(heights)
+        self.heights = heights
+
 
         self.moon = self.world.CreateStaticBody(
             shapes=edgeShape(vertices=[(0, 0), (W, 0)])

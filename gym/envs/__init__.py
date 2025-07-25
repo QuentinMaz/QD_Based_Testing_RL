@@ -117,7 +117,8 @@ register(
     reward_threshold=200,
 )
 
-#TODO: vanilla version
+#TODO: vanilla version (anymore)
+# states encode the shape of the landscape
 register(
     id="LunarLander-v4",
     entry_point="gym.envs.box2d:LunarLanderV4",
