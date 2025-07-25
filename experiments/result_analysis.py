@@ -4,6 +4,8 @@ from pathlib import Path
 import warnings
 from typing import Dict, Iterable, List, Tuple, Union
 
+from matplotlib.legend import Legend
+from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import torch
@@ -563,7 +565,7 @@ def plot_coverage_results(
     nb_use_cases = len(use_cases)
 
     fig, axs = plt.subplots(
-        nrows=nb_use_cases, ncols=2, figsize=(11, 5 * nb_use_cases), sharex=True
+        nrows=nb_use_cases, ncols=2, figsize=(10, 4.5 * nb_use_cases), sharex=True
     )
     if nb_use_cases == 1:
         axs = [axs]
@@ -1042,6 +1044,112 @@ def plot_rq2_meas_results(
     legend_frame.set_edgecolor("0.9")
     fig.tight_layout()
     return (fig, axs)
+
+
+def plot_rq3_results(
+        data_lists: List[List[Dict[str, list]]],
+        colors_dict: Dict[str, Tuple[float]],
+        env_seeds: List[int],
+        use_cases: List[str] = None,
+        ylabels: List[str] = None,
+        x_axis: str = "iterations"):
+
+    if use_cases is None:
+        use_cases = np.arange(np.max([len(l) for l in data_lists]))
+
+    nrows = len(data_lists)
+    ncols = len(use_cases)
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6*ncols, 4.5*nrows), sharex="all", sharey="none")
+
+    if ylabels is None:
+        ylabels = ["" for _ in range(nrows)]
+    for ax in axes.flat:
+        ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+
+    def _repeat_data(arr: np.ndarray, n: int):
+        return  np.array(
+            sum(
+                [[v for _ in range(n)] for v in arr],
+                []
+            )
+        )
+
+    # distinct per-method N plotting with linestyling
+    linestyles = ["dotted", "dashed", "dashdot", "solid"]
+    assert len(env_seeds) <= len(linestyles), "Too many different env_seeds (n values) to plot."
+
+    # per row (i.e. metric/result)
+    for r, data in enumerate(data_lists):
+        axes[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
+        for c in range(ncols):
+            ax = axes[r][c]
+            case_dict = data[c]
+            for name, res_list in case_dict.items():
+                # list of stats results per method (for different n values)
+                for i, (y, perc_25, perc_75) in enumerate(res_list):
+                    color = colors_dict[name]
+                    # label = f"{name} N={env_seeds[i]}"
+                    label = name
+
+                    if "MAP-Elites" in label:
+                        label = label.replace("MAP-Elites", "ME")
+                    if "Novelty Search" in label:
+                        label = label.replace("Novelty Search", "NS")
+                    if "Radom Testing" in label:
+                        label = label.replace("Radom Testing", "RT")
+
+                    if x_axis != "iterations":
+                        n = env_seeds[i]
+                        x = np.arange(len(y) * n)
+                        y = _repeat_data(y, n)
+                        # perc_25 = _repeat_data(perc_25, n)
+                        # perc_75 = _repeat_data(perc_75, n)
+                    else:
+                        x = np.arange(len(y))
+
+                    ax.plot(x, y, color=color, label=(label if i == len(env_seeds) - 1  else None), linewidth=2, linestyle=linestyles[i])
+                    # ax.fill_between(
+                    #     x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
+                    # )
+
+    def legend_axis(ax):
+        legend = ax.legend(prop={"size": 10}, ncol=1, labelspacing=1.1, handletextpad=1.05, borderpad=1.05, borderaxespad=1.0, loc="upper left")
+        legend_frame = legend.get_frame()
+        legend_frame.set_facecolor("0.9")
+        legend_frame.set_edgecolor("0.9")
+
+
+        custom_lines = [
+            Line2D([0], [0], color="black", linestyle=style, linewidth=2)
+            for style in linestyles
+        ]
+
+        custom_labels = [r"$n = {}$".format(i) for i in env_seeds]
+        custom_legend = Legend(
+            ax,
+            custom_lines,
+            custom_labels,
+            loc="lower right",
+            labelspacing=1.1,
+            handletextpad=1.0,
+            handlelength=3, # default is 2
+            borderpad=1.0,
+            borderaxespad=1.0,
+            prop={"size": 10}
+        )
+        legend_frame = custom_legend.get_frame()
+        legend_frame.set_facecolor("0.9")
+        legend_frame.set_edgecolor("0.9")
+
+        ax.add_artist(custom_legend)
+        return ax
+
+    for c in range(ncols):
+        axes[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
+    fig.tight_layout()
+
+    return (fig, axes), legend_axis
 
 
 ##############################################################################
