@@ -191,11 +191,28 @@ class LunarLanderV4(gym.Env, EzPickle):
         self.game_over = False
         self.prev_shaping = None
 
+        # shape of (1,)
+        assert len(states) == 1
+        theta = states[0]
 
         # create the terrain
-        heights = states
-        chunk_x, smooth_y = self._create_terrain(heights)
-        self.heights = heights
+        # heights = states
+        # chunk_x, smooth_y = self._create_terrain(heights)
+        # self.heights = heights
+        height = self.np_random.uniform(0, H / 2, size=(CHUNKS + 1,))
+        chunk_x = [W / (CHUNKS - 1) * i for i in range(CHUNKS)]
+        self.helipad_x1 = chunk_x[CHUNKS // 2 - 1]
+        self.helipad_x2 = chunk_x[CHUNKS // 2 + 1]
+        self.helipad_y = H / 4
+        height[CHUNKS // 2 - 2] = self.helipad_y
+        height[CHUNKS // 2 - 1] = self.helipad_y
+        height[CHUNKS // 2 + 0] = self.helipad_y
+        height[CHUNKS // 2 + 1] = self.helipad_y
+        height[CHUNKS // 2 + 2] = self.helipad_y
+        smooth_y = [
+            0.33 * (height[i - 1] + height[i + 0] + height[i + 1])
+            for i in range(CHUNKS)
+        ]
 
 
         self.moon = self.world.CreateStaticBody(
@@ -228,13 +245,21 @@ class LunarLanderV4(gym.Env, EzPickle):
         )
         self.lander.color1 = (0.5, 0.4, 0.9)
         self.lander.color2 = (0.3, 0.3, 0.5)
+        fx = (
+            math.cos(theta)
+            * self.np_random.uniform(750, 1500)
+        )
+        fy = (
+            math.sin(theta)
+            * self.np_random.uniform(750, 1500)
+            * -1 # towards the ground
+        )
         self.lander.ApplyForceToCenter(
-            (
-                self.np_random.uniform(-INITIAL_RANDOM, INITIAL_RANDOM),
-                self.np_random.uniform(-INITIAL_RANDOM, INITIAL_RANDOM),
-            ),
+            (fx, fy),
             True,
         )
+
+        print(f"INITIAL SITUATION: angle: {theta:.2f} ({(theta*180/math.pi):.1f}°), fx: {fx:.0f}, fy: {fy:.0f}.")
 
         self.legs = []
         for i in [-1, +1]:

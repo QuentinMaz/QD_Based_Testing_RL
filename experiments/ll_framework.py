@@ -2,6 +2,7 @@ import json
 import os
 import time
 from typing import Any, List, Tuple
+from math import pi
 
 import gym
 import numpy as np
@@ -19,6 +20,13 @@ DEFAULT_MAX = 1000
 
 class LLFramework(Framework):
     def __init__(self, rand_seed, cell_granularity, features, descriptors, **kwargs):
+        """
+        Parameters
+        ----------
+        input_space : str, optional
+            Name of the input space. Available options are "force", "heights", "angle". Default to "force".
+
+        """
         super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
 
         self.action_range = [0, 4]  # type: Tuple[int, int]
@@ -26,6 +34,8 @@ class LLFramework(Framework):
         self.path_to_measures_extrema = "grid/ll/measures.csv"  # type: str
         self.use_case = "Lunar Lander"
         self.input_space = kwargs.get("input_space", "force")
+        self.max_angle = pi
+        self.angle_mutation_intensity = (5 * pi) / 180.0
 
     def _generate_force(self, **kwargs):
         return self.rng.uniform(low=DEFAULT_MIN, high=DEFAULT_MAX, size=2)
@@ -39,25 +49,52 @@ class LLFramework(Framework):
         else:
             return self.rng.uniform(0, H / 2, size=(n, 8))
 
+    def _generate_angle(self, n: int = 1) -> np.ndarray:
+        if n == 1:
+            return self.rng.uniform(0, self.max_angle, size=1)
+        else:
+            return self.rng.uniform(0, self.max_angle, size=(n, 1))
+
     def generate_input(self, **kwargs):
         if self.input_space == "force":
             return self._generate_force()
-        else:
+        if self.input_space == "heights":
             return self._generate_heights()
+        else:
+            return self._generate_angle()
 
     def generate_inputs(self, n, **kwargs):
         if self.input_space == "force":
             return self._generate_forces()
-        else:
+        if self.input_space == "heights":
             return self._generate_heights(n)
+        else:
+            return self._generate_angle(n)
 
-
-    def mutate(self, input, **kwargs):
+    def _mutate_force(self, input):
         return np.clip(
             self.rng.normal(input, 5.0),
             [DEFAULT_MIN, DEFAULT_MIN],
             [DEFAULT_MAX, DEFAULT_MAX],
         )
+
+    def _mutate_heights(self, input):
+        raise NotImplementedError()
+
+    def _mutate_angle(self, input):
+        return np.clip(
+            self.rng.normal(input, self.angle_mutation_intensity),
+            0,
+            self.max_angle,
+        )
+
+    def mutate(self, input, **kwargs):
+        if self.input_space == "force":
+            return self._mutate_force(input)
+        if self.input_space == "heights":
+            return self._mutate_heights(input)
+        else:
+            return self._mutate_angle(input)
 
     def execute_policy(self, input, model, env_seed, deterministic=True, render=False):
         t0 = time.time()
