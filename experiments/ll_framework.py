@@ -24,7 +24,7 @@ class LLFramework(Framework):
         Parameters
         ----------
         input_space : str, optional
-            Name of the input space. Available options are "force", "heights", "angle". Default to "force".
+            Name of the input space. Available options are "force", "heights", "angle". Default to "angle".
 
         """
         super().__init__(rand_seed, cell_granularity, features, descriptors, **kwargs)
@@ -33,7 +33,8 @@ class LLFramework(Framework):
         self.action_bins = 4  # type: int
         self.path_to_measures_extrema = "grid/ll/measures.csv"  # type: str
         self.use_case = "Lunar Lander"
-        self.input_space = kwargs.get("input_space", "force")
+        self.input_space = kwargs.get("input_space", "angle")
+        self.config["input_space"] = self.input_space
         self.max_angle = pi
         self.angle_mutation_intensity = (5 * pi) / 180.0
 
@@ -103,8 +104,10 @@ class LLFramework(Framework):
         else:
             env: gym.Env = gym.make("LunarLander-v4")
 
-        # env.seed(env_seed)
-        env.seed(None)
+        if self.input_space == "angle":
+            env.seed(None)
+        else:
+            env.seed(env_seed)
         obs = env.reset(input)
         state = None
         acc_reward = 0.0
