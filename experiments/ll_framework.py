@@ -103,7 +103,8 @@ class LLFramework(Framework):
         else:
             env: gym.Env = gym.make("LunarLander-v4")
 
-        env.seed(env_seed)
+        # env.seed(env_seed)
+        env.seed(None)
         obs = env.reset(input)
         state = None
         acc_reward = 0.0

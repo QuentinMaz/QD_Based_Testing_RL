@@ -259,7 +259,7 @@ class LunarLanderV4(gym.Env, EzPickle):
             True,
         )
 
-        print(f"INITIAL SITUATION: angle: {theta:.2f} ({(theta*180/math.pi):.1f}°), fx: {fx:.0f}, fy: {fy:.0f}.")
+        # print(f"INITIAL SITUATION: angle: {theta:.2f} ({(theta*180/math.pi):.1f}°), fx: {fx:.0f}, fy: {fy:.0f}.")
 
         self.legs = []
         for i in [-1, +1]:
