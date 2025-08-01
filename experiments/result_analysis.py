@@ -6,6 +6,7 @@ from typing import Dict, Iterable, List, Tuple, Union
 
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
 import torch
@@ -369,10 +370,9 @@ def plot_rq1_results(
     n = len(use_cases)
     fig, axs = plt.subplots(ncols=n, figsize=(7 * n, 6), sharex=True)
     if n == 1:
-        axs = [axs]
-        axs[0].grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-    else:
-        [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
+        axs = np.expand_dims(axs, axis=0)  # type: np.ndarray
+
+    [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
 
     axs[0].set_ylabel(FAULT_LABEL, fontsize=AXIS_LABEL_FONTSIZE)
 
@@ -568,13 +568,9 @@ def plot_coverage_results(
         nrows=nb_use_cases, ncols=2, figsize=(10, 4.5 * nb_use_cases), sharex=True
     )
     if nb_use_cases == 1:
-        axs = [axs]
-        [
-            ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-            for ax in axs[0].flat
-        ]
-    else:
-        [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
+        axs = np.expand_dims(axs, axis=0)  # type: np.ndarray
+
+    [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
 
     axs[-1][0].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
     axs[-1][1].set_xlabel("#Iterations", fontsize=AXIS_LABEL_FONTSIZE)
@@ -1062,6 +1058,12 @@ def plot_rq3_results(
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6*ncols, 4.5*nrows), sharex="all", sharey="none")
 
+    if nrows == 1:
+        axes = np.expand_dims(axes, axis=0)  # type: np.ndarray
+    if ncols == 1:
+        axes = np.expand_dims(axes, axis=1)  # type: np.ndarray
+    assert len(axes.shape) == 2
+
     if ylabels is None:
         ylabels = ["" for _ in range(nrows)]
     for ax in axes.flat:
@@ -1151,6 +1153,140 @@ def plot_rq3_results(
 
     return (fig, axes), legend_axis
 
+
+def boxplot_rq3_results(
+        data_lists: List[List[Dict[str, list]]],
+        colors_dict: Dict[str, Tuple[float]],
+        env_seeds: List[int],
+        use_cases: List[str] = None,
+        ylabels: List[str] = None
+    ):
+
+    if use_cases is None:
+        use_cases = np.arange(np.max([len(l) for l in data_lists]))
+
+    nrows = len(data_lists)
+    ncols = len(use_cases)
+
+    fig, axes = plt.subplots(
+        nrows=nrows, ncols=ncols,
+        figsize=(6*ncols, 4*nrows),
+        sharex="all", sharey="none"
+    )
+
+    if ylabels is None:
+        ylabels = ["" for _ in range(nrows)]
+    for ax in axes.flat:
+        ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
+
+    xticks = []
+    xtick_labels = []
+
+    num_methods = max(
+        sum([[len(d.keys()) for d in sub_list] for sub_list in data_lists], [])
+    )
+
+    space_between_method = 15
+
+    for i in range(num_methods):
+        for k, env_seed in enumerate(env_seeds):
+            xtick_labels.append(f"n={env_seed}")
+            xticks.append(2 + (3 * k + space_between_method * i))
+
+    def _box_data(median, q1, q3, label=None):
+        box_data = {
+            "label": label,
+            "med": median,
+            "q1": q1,
+            "q3": q3,
+            "whislo": q1,
+            "whishi": q3
+        }
+        return box_data
+
+    # FLAT_BOX_THRESHOLD = 30
+
+
+    # per row (i.e. metric/result)
+    for r, data in enumerate(data_lists):
+        axes[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
+
+        for c in range(ncols):
+            ax = axes[r][c]
+            case_dict = data[c]
+
+            colors = []
+            box_data = []
+            positions = []
+
+            for k, (name, res_list) in enumerate(case_dict.items()):
+                # list of stats results per method (for different n values)
+                for i, (y, perc_25, perc_75) in enumerate(res_list):
+                    color = colors_dict[name]
+                    colors.append(color)
+                    box_data.append(_box_data(y[-1], perc_25[-1], perc_75[-1], label=name))
+                    # does not use the xticks directly in case of missing data
+                    positions.append(xticks[i + k * len(env_seeds)])
+
+            boxplot = ax.bxp(box_data, positions=positions, showfliers=False, patch_artist=True, widths=1.0)
+            for i, (box_patch, median_line, color) in enumerate(zip(boxplot["boxes"], boxplot["medians"], colors)):
+                # path = box_patch.get_path().vertices
+                # q1 = path[0][1]
+                # q3 = path[2][1]
+                # height = abs(q3 - q1)
+                # print(height)
+
+                # if height < FLAT_BOX_THRESHOLD:
+                #     line_color = color
+                # else:
+                #     line_color = "black"
+                box_patch.set_facecolor(color)
+                box_patch.set_edgecolor("black")
+                median_line.set_color("black")
+                median_line.set_linewidth(3)
+
+
+    for c in range(ncols):
+        axes[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
+
+    axes[0][0].set_xticks(xticks)
+    axes[0][0].set_xticklabels(xtick_labels)
+    for ax in axes[-1]:
+        ax.tick_params(axis="x", labelrotation=45, labelsize=12)
+    ax = axes.flat[-1]
+    xmin, xmax = ax.get_xlim()
+    ax.set_xlim(xmin - 1, xmax + 1)
+
+    fig.tight_layout()
+
+    def legend_axis(ax, **kwargs):
+        method_names = set()
+        for data in data_lists:
+            for d in data:
+                for k in d.keys():
+                    method_names.add(k)
+
+        legend_handles = [
+            Patch(facecolor=colors_dict[name], edgecolor="black", label=name)
+            for name in method_names
+        ]
+        legend_kwargs = {
+            "handles": legend_handles,
+            "labelspacing": 1.1,
+            "handletextpad": 1.0,
+            "handlelength": 3, # default is 2
+            "borderpad": 1.0,
+            "borderaxespad": 1.0,
+            "prop": {"size": 10}
+        }
+        legend_kwargs.update(kwargs)
+        legend = ax.legend(**legend_kwargs)
+        legend_frame = legend.get_frame()
+        legend_frame.set_facecolor("0.9")
+        legend_frame.set_edgecolor("0.9")
+        return ax
+
+    return (fig, axes), legend_axis
 
 ##############################################################################
 ################################## MAIN ######################################
