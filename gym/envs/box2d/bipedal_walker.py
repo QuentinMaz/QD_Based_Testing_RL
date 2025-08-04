@@ -58,7 +58,7 @@ HULL_POLY = [(-30, +9), (+6, +9), (+34, +1), (+34, -8), (-30, -8)]
 LEG_DOWN = -8 / SCALE
 LEG_W, LEG_H = 8 / SCALE, 34 / SCALE
 
-VIEWPORT_W = 600
+VIEWPORT_W = 2000
 VIEWPORT_H = 400
 
 TERRAIN_STEP = 14 / SCALE
@@ -803,13 +803,14 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                         oneshot = True
                         index_of_state += 1
                         if index_of_state >= len(states):
-                            index_of_state =0
+                            break
                     else:
                         state = GRASS
                         oneshot = True
 
         self.terrain_poly = []
-        for i in range(TERRAIN_LENGTH - 1):
+        # for i in range(TERRAIN_LENGTH - 1):
+        for i in range(len(self.terrain_x) - 1):
             poly = [
                 (self.terrain_x[i], self.terrain_y[i]),
                 (self.terrain_x[i + 1], self.terrain_y[i + 1]),
@@ -824,6 +825,7 @@ class BipedalWalkerV4(gym.Env, EzPickle):
             poly += [(poly[1][0], 0), (poly[0][0], 0)]
             self.terrain_poly.append((poly, color))
         self.terrain.reverse()
+        # print("total length of the terrain:", self.terrain_x[-1] * SCALE)
 
     def _generate_clouds(self):
         # Sorry for the clouds, couldn't resist
@@ -1073,6 +1075,8 @@ class BipedalWalkerV4(gym.Env, EzPickle):
 
         if self.viewer is None:
             self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
+
+        self.scroll = 0.0
         self.viewer.set_bounds(
             self.scroll, VIEWPORT_W / SCALE + self.scroll, 0, VIEWPORT_H / SCALE
         )
@@ -1089,8 +1093,8 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         for poly, x1, x2 in self.cloud_poly:
             if x2 < self.scroll / 2:
                 continue
-            if x1 > self.scroll / 2 + VIEWPORT_W / SCALE:
-                continue
+            # if x1 > self.scroll / 2 + VIEWPORT_W / SCALE:
+            #     continue
             self.viewer.draw_polygon(
                 [(p[0] + self.scroll / 2, p[1]) for p in poly], color=(1, 1, 1)
             )

@@ -134,7 +134,7 @@ class Viewer(object):
             buffer = pyglet.image.get_buffer_manager().get_color_buffer()
             image_data = buffer.get_image_data()
             #TODO
-            arr = np.frombuffer(image_data.get_data('RGB', image_data.width * 4), dtype=np.uint8)
+            arr = np.frombuffer(image_data.get_data('RGBA'), dtype=np.uint8)
             # In https://github.com/openai/gym-http-api/issues/2, we
             # discovered that someone using Xmonad on Arch was having
             # a window of size 598 x 398, though a 600 x 400 window
