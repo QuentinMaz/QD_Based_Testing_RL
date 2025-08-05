@@ -58,7 +58,7 @@ HULL_POLY = [(-30, +9), (+6, +9), (+34, +1), (+34, -8), (-30, -8)]
 LEG_DOWN = -8 / SCALE
 LEG_W, LEG_H = 8 / SCALE, 34 / SCALE
 
-VIEWPORT_W = 2000
+VIEWPORT_W = 600
 VIEWPORT_H = 400
 
 TERRAIN_STEP = 14 / SCALE
@@ -664,7 +664,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
     def _generate_terrain(self, hardcore, states):
         GRASS, STUMP, STAIRS, PIT, _STATES_ = range(5)
         index_of_state = 0
-        flag_of_terrain = False
         state = GRASS
         velocity = 0.0
         y = TERRAIN_HEIGHT
@@ -678,7 +677,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
             self.terrain_x.append(x)
 
             if state == GRASS and not oneshot:
-                # print('grass not oneshot')
                 velocity = 0.8 * velocity + 0.01 * np.sign(TERRAIN_HEIGHT - y)
                 if i > TERRAIN_STARTPAD:
                     tmp = self.rng.uniform(-1, 1)
@@ -687,7 +685,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                 y += velocity
 
             elif state == PIT and oneshot:
-                # print('pit shot')
                 tmp = self.rng.integers(3, 5)
                 self.rand_history.append(tmp)
                 counter = tmp
@@ -712,13 +709,11 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                 original_y = y
 
             elif state == PIT and not oneshot:
-                # print('pit not oneshot')
                 y = original_y
                 if counter > 1:
                     y -= 4 * TERRAIN_STEP
 
             elif state == STUMP and oneshot:
-                # print('stump oneshot')
                 tmp = self.rng.integers(1, 3)
                 self.rand_history.append(tmp)
                 counter = tmp
@@ -734,7 +729,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                 self.terrain.append(t)
 
             elif state == STAIRS and oneshot:
-                # print('stairs oneshot')
                 tmp = self.rng.random()
                 self.rand_history.append(tmp)
                 stair_height = +1 if tmp > 0.5 else -1 #todo
@@ -771,7 +765,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                 counter = stair_steps * stair_width
 
             elif state == STAIRS and not oneshot:
-                # print('stairs not oneshot')
                 s = stair_steps * stair_width - counter - stair_height
                 n = s / stair_width
                 y = original_y + (n * stair_height) * TERRAIN_STEP
@@ -795,6 +788,9 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                         oneshot = True
                 else:
                     if state == GRASS and hardcore:
+                        if index_of_state >= len(states):
+                            # index_of_state = 0
+                            break
                         self.nb_states_used += 1
                         self.use_terrain_locations.append(i)
                         self.use_x_locations.append(x)
@@ -802,8 +798,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
                         state = states[index_of_state]
                         oneshot = True
                         index_of_state += 1
-                        if index_of_state >= len(states):
-                            break
                     else:
                         state = GRASS
                         oneshot = True
@@ -825,7 +819,10 @@ class BipedalWalkerV4(gym.Env, EzPickle):
             poly += [(poly[1][0], 0), (poly[0][0], 0)]
             self.terrain_poly.append((poly, color))
         self.terrain.reverse()
-        # print("total length of the terrain:", self.terrain_x[-1] * SCALE)
+        # for index, x_index, x, in zip(self.use_indices, self.use_terrain_locations, self.use_x_locations):
+        #     print(f'Obstacle {index%len(states)} at x_terrain pos {x_index} has x_pos: {x}')
+        # print("total length of the terrain as x_pos:", self.terrain_x[-1], "; rescaled:", self.terrain_x[-1] * SCALE)
+
 
     def _generate_clouds(self):
         # Sorry for the clouds, couldn't resist
@@ -875,9 +872,6 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         self.prev_shaping = None
         self.scroll = 0.0
         self.lidar_render = 0
-
-        W = VIEWPORT_W / SCALE
-        H = VIEWPORT_H / SCALE
 
         self._generate_terrain(self.hardcore, states)
         self._generate_clouds()
@@ -1040,8 +1034,8 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         if self.game_over or pos[0] < 0:
             reward = -100
             done = True
-        # if pos[0] > (TERRAIN_LENGTH - TERRAIN_GRASS) * TERRAIN_STEP:
-        #     done = True
+        if np.max([b.position[0] for b in [self.hull] + self.legs]) >= self.terrain_x[-1]:
+            done = True
 
 
         #TODO: leo observation (4 hand-coded behavior spaces)
@@ -1070,22 +1064,23 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         return np.array(state), reward, done, {'features': features}
         return np.array(state), reward, done, {}
 
-    def render(self, mode="human"):
+    def render(self, mode="rgb_array"):
+        viewport_w = 2000
         from gym.envs.classic_control import rendering
 
         if self.viewer is None:
-            self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
+            self.viewer = rendering.Viewer(viewport_w, VIEWPORT_H)
 
         self.scroll = 0.0
         self.viewer.set_bounds(
-            self.scroll, VIEWPORT_W / SCALE + self.scroll, 0, VIEWPORT_H / SCALE
+            self.scroll, viewport_w / SCALE + self.scroll, 0, VIEWPORT_H / SCALE
         )
 
         self.viewer.draw_polygon(
             [
                 (self.scroll, 0),
-                (self.scroll + VIEWPORT_W / SCALE, 0),
-                (self.scroll + VIEWPORT_W / SCALE, VIEWPORT_H / SCALE),
+                (self.scroll + viewport_w / SCALE, 0),
+                (self.scroll + viewport_w / SCALE, VIEWPORT_H / SCALE),
                 (self.scroll, VIEWPORT_H / SCALE),
             ],
             color=(0.9, 0.9, 1.0),
@@ -1093,7 +1088,7 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         for poly, x1, x2 in self.cloud_poly:
             if x2 < self.scroll / 2:
                 continue
-            # if x1 > self.scroll / 2 + VIEWPORT_W / SCALE:
+            # if x1 > self.scroll / 2 + viewport_w / SCALE:
             #     continue
             self.viewer.draw_polygon(
                 [(p[0] + self.scroll / 2, p[1]) for p in poly], color=(1, 1, 1)
@@ -1101,7 +1096,7 @@ class BipedalWalkerV4(gym.Env, EzPickle):
         for poly, color in self.terrain_poly:
             if poly[1][0] < self.scroll:
                 continue
-            if poly[0][0] > self.scroll + VIEWPORT_W / SCALE:
+            if poly[0][0] > self.scroll + viewport_w / SCALE:
                 continue
             self.viewer.draw_polygon(poly, color=color)
 
