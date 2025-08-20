@@ -149,7 +149,7 @@ def get_histogram(
 
 
 def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.ndarray:
-    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander"]:
+    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander", "Taxi"]:
         raise ValueError()
 
     if use_case == "Bipedal Walker":
@@ -162,8 +162,12 @@ def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.nd
     if use_case == "Highway":
         return np.load(f"grid/hw/edges.npy")
 
-    else:
+    if use_case == "Lunar Lander":
         return np.load(f"grid/ll/0_1000_xedges.npy"), np.load(f"grid/ll/0_1000_yedges.npy")
+
+    else:
+        return np.load(f"grid/tt/mins.npy").astype(float), np.load(f"grid/tt/maxs.npy").astype(float)
+
 
 
 def get_measures_edges(
@@ -581,6 +585,21 @@ def load_bipedal_walker_model():
         kwargs={"seed": 0, "buffer_size": 1},
         device="cpu",
     )
+
+class TestAgent():
+    """Shallow class that loads a qtable and steps."""
+    def __init__(self, filepath: str):
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Input file not found.")
+        self.qtable = np.load(filepath)
+
+    def step(self, state):
+        return np.argmax(self.qtable[state])
+
+def load_taxi_model() -> TestAgent:
+    """Loads the model under test."""
+    return TestAgent("taxi_large_map_qtable.npy")
+
 
 
 #################################################################################################
