@@ -532,7 +532,7 @@ class Framework(ABC):
             ).tolist()  # type: List[int]
 
         self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
+        self.config["yedges"] = list(self.yedges)
         return get_behavior, get_cell
 
 

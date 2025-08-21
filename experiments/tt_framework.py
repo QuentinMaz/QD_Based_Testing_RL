@@ -74,8 +74,11 @@ class TTFramework(Framework):
         get_behavior = lambda ebs_list, meas: self.bs.compute_behavior(ebs_list[0])
         get_cell = lambda behavior: self.bs.compute_cell(behavior)
 
+        # it should be this but it does not matter...
+        # self.config["xedges"] = self.bs.x.copy()
+        # self.config["yedges"] = self.bs.y.copy()
         self.config["xedges"] = list(self.xedges)
-        self.config["yedges"] = list(self.xedges)
+        self.config["yedges"] = list(self.yedges)
         return get_behavior, get_cell
 
     def get_taxi_env(self, map_fp: str = MAP_FILEPATH):
