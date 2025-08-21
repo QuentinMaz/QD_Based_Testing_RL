@@ -66,7 +66,7 @@ class LLFramework(Framework):
 
     def generate_inputs(self, n, **kwargs):
         if self.input_space == "force":
-            return self._generate_forces()
+            return self._generate_forces(n)
         if self.input_space == "heights":
             return self._generate_heights(n)
         else:

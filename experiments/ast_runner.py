@@ -132,6 +132,7 @@ if __name__ == "__main__":
             cell_granularity,
             features=MEASURES,
             descriptors=descriptors,
+            input_space="force"
         )
         model = load_lunar_lander_model()
     else:
@@ -149,7 +150,7 @@ if __name__ == "__main__":
         )
 
     elif method == "mdpfuzz":
-        if use_case == "ll":
+        if use_case == "bw":
             executor = BWExecutor(seed, env_seeds, log_path=str(results_fp))
             exp_name = "Bipedal Walker"
         elif use_case == "ll":
