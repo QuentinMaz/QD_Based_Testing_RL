@@ -166,7 +166,7 @@ def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.nd
         return np.load(f"grid/ll/0_1000_xedges.npy"), np.load(f"grid/ll/0_1000_yedges.npy")
 
     else:
-        return np.load(f"grid/tt/mins.npy").astype(float), np.load(f"grid/tt/maxs.npy").astype(float)
+        return np.load(f"grid/tt/xedges.npy").astype(float), np.load(f"grid/tt/yedges.npy").astype(float)
 
 
 
