@@ -91,6 +91,8 @@ class Framework(ABC):
 
         # additional attributes
         self.input_fmt = kwargs.get("input_fmt", "%.18e")  # type: str
+        self.expert_indices = kwargs.get("expert_indices", [0, 1])  # type: Tuple[int, int]
+        self.config["expert_indices"] = self.expert_indices
 
         # attribute set when a testing method is used
         self.name = kwargs.get("name", None)  # type: str
@@ -514,10 +516,10 @@ class Framework(ABC):
 
     def process_env_seeds(self, env_seeds: List[int]):
         if len(env_seeds) == 1:
-            self.xedges, self.yedges = get_expert_bin_edges(self.use_case, descriptors=[0, 1]) # or [4, 8]
+            self.xedges, self.yedges = get_expert_bin_edges(self.use_case, descriptors=self.expert_indices) # or [4, 8]
             get_behavior = lambda ebs_list, meas: ebs_list[0]
             get_cell = lambda behavior: compute_cell(
-                behavior[[0, 1]], self.xedges, self.yedges
+                behavior[self.expert_indices], self.xedges, self.yedges
             ).tolist()  # type: List[int]
         else:
             df = pd.read_csv(self.path_to_measures_extrema)

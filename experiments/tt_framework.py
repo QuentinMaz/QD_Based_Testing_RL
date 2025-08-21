@@ -7,7 +7,7 @@ from map_builder import MapBuilder
 import gym
 import numpy as np
 import torch
-from common import ENV_SEEDS, EXPERIMENT_SEEDS, MEASURES, load_taxi_model
+from common import ENV_SEEDS, EXPERIMENT_SEEDS, MEASURES, get_expert_bin_edges, load_taxi_model
 from mdpfuzz.executor import Executor
 from mdpfuzz.mdpfuzz import Fuzzer
 
@@ -17,6 +17,43 @@ MAP_FILEPATH = "map_large.txt"
 INPUT_LOWS = [0, 0, 0, 0]
 INPUT_UPS = [18, 13, 11, 11]
 PASS_IN_TAXI_IDX = 11
+
+
+class BehaviorSpace():
+    """
+    Implementation of a descriptor for the Taxi use-case.
+    It computes 2d behaviors as the sum of the first and second half of the feature values, respectively.
+    The container is a regular grid which evenly ranges from the minima and the maxima of the behaviors.
+    """
+
+    def __init__(self, lower_bounds: np.ndarray, upper_bounds: np.ndarray) -> None:
+        n = len(lower_bounds)
+        assert len(upper_bounds) == n
+        tmp = int(n / 2)
+        self.mins: np.ndarray = np.array([sum(lower_bounds[:tmp]), sum(lower_bounds[tmp:])], dtype=int)
+        self.maxs: np.ndarray = np.array([sum(upper_bounds[:tmp]), sum(upper_bounds[tmp:])], dtype=int)
+        self.x: List[int] = np.arange(self.mins[0], self.maxs[0] + 1).tolist()
+        self.y: List[int] = np.arange(self.mins[1], self.maxs[1] + 1).tolist()
+
+
+    def compute_behavior(self, feature: np.ndarray) -> np.ndarray:
+        tmp = int(len(feature) / 2)
+        return np.array([sum(feature[:tmp]), sum(feature[tmp:])], dtype=int)
+
+
+    def compute_cell(self, behavior: np.ndarray) -> List[int]:
+        assert len(behavior) == 2
+        return [self.x.index(behavior[0]), self.y.index(behavior[1])]
+
+
+    def describe(self, feature: np.ndarray) -> Tuple[np.ndarray, List[int]]:
+        """Convenient function that returns the behavior and its cell of @feature."""
+        behavior = self.compute_behavior(feature)
+        return behavior, self.compute_cell(behavior)
+
+
+    def get_container(self) -> List[List[int]]:
+        return [[i, j] for i in self.x for j in self.y]
 
 
 class TTFramework(Framework):
@@ -31,6 +68,15 @@ class TTFramework(Framework):
 
         self._env = self.get_taxi_env()
 
+    def process_env_seeds(self, env_seeds: List[int]):
+        self.xedges, self.yedges = get_expert_bin_edges(self.use_case, descriptors=self.expert_indices)
+        self.bs = BehaviorSpace(self.xedges, self.yedges)
+        get_behavior = lambda ebs_list, meas: self.bs.compute_behavior(ebs_list[0])
+        get_cell = lambda behavior: self.bs.compute_cell(behavior)
+
+        self.config["xedges"] = list(self.xedges)
+        self.config["yedges"] = list(self.xedges)
+        return get_behavior, get_cell
 
     def get_taxi_env(self, map_fp: str = MAP_FILEPATH):
         map = MapBuilder(map_fp)
@@ -110,7 +156,7 @@ class TTFramework(Framework):
                 break
 
         exec_time = time.time() - t0
-        return acc_reward, oracle, behavior, np.array(obs), exec_time, np.expand_dims(actions, axis=1), frames
+        return acc_reward, oracle, behavior, np.array(list(self._env.decode(obs))), exec_time, np.expand_dims(actions, axis=1), frames
 
 
 class TTExecutor(Executor):
@@ -240,7 +286,7 @@ if __name__ == "__main__":
 
     # experimental parameters
     test_budget = 5000
-    init_budget = 100
+    init_budget = 1000
     cell_granularity = 50
 
     population_size, nb_iterations = 100, 50

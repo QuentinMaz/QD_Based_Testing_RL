@@ -219,7 +219,7 @@ class BWExecutor(Executor):
         for buffer in self.final_states_buffers:
             buffer.close()
         self.executor.save_state(self.fp)
-        # creates also this empty file 9not done by the executor) for result data structure consistency...
+        # creates also this empty file (not done by the executor) for result data structure consistency...
         with open(f"{self.fp}_cells.txt", "w") as f:
             f.write("")
 

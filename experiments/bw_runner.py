@@ -1,10 +1,6 @@
 import warnings
 import torch
-import json
-import os
-import sys
-import time
-from typing import Any, List, Tuple
+from typing import Tuple
 
 from bw_framework import BWFramework
 
@@ -63,8 +59,7 @@ if __name__ == "__main__":
     use_case = "bw"
     descriptors = ["action_entropy_mean", "length_spread"] # generic descriptors (unused)
     test_budget = 5000
-
-    n = args.env_seeds  # type: int
+    n = 1
 
     assert len(descriptors) == 2, len(descriptors)
     assert all([d in MEASURES for d in descriptors]), descriptors
