@@ -150,9 +150,10 @@ def get_histogram(
 
 def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.ndarray:
     if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander", "Taxi"]:
-        raise ValueError()
+        if not use_case.startswith("Bipedal Walker"):
+            raise ValueError()
 
-    if use_case == "Bipedal Walker":
+    if use_case.startswith("Bipedal Walker"):
         edges = np.load(f"grid/bw/0_300_edges.npy")
         if descriptors is not None:
             return edges[descriptors]

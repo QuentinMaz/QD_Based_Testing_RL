@@ -517,9 +517,10 @@ class Framework(ABC):
     def process_env_seeds(self, env_seeds: List[int]):
         if len(env_seeds) == 1:
             self.xedges, self.yedges = get_expert_bin_edges(self.use_case, descriptors=self.expert_indices) # or [4, 8]
-            get_behavior = lambda ebs_list, meas: ebs_list[0]
+            # mistake found with NS on BW with different expert descriptors!
+            get_behavior = lambda ebs_list, meas: ebs_list[0][self.expert_indices]
             get_cell = lambda behavior: compute_cell(
-                behavior[self.expert_indices], self.xedges, self.yedges
+                behavior, self.xedges, self.yedges
             ).tolist()  # type: List[int]
         else:
             df = pd.read_csv(self.path_to_measures_extrema)

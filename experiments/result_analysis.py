@@ -438,6 +438,9 @@ def load_obs_space_edges(use_case: str, num_bins: int = 20) -> np.ndarray:
     elif use_case.capitalize().startswith("H"):
         return np.load(f"grid/hw/obs_space_edges_{num_bins}.npy")
 
+    elif use_case.capitalize().startswith("T"):
+        return np.load(f"grid/tt/obs_space_edges_{num_bins}.npy")
+
     else:
         raise ValueError(f"No edges available for use case {use_case}.")
 
@@ -831,7 +834,7 @@ def compute_expert_behaviors_coverage(data: List[Dict]):
                     "expert_behaviors", []
                 )  # type: List[np.ndarray]
                 for eb in expert_behaviors_list:
-                    if case == "Bipedal Walker":
+                    if case.startswith("Bipedal Walker"):
                         desc_indices = EXPERT_INDICES
                         edges_list = [
                             get_expert_bin_edges(case, desc) for desc in desc_indices
