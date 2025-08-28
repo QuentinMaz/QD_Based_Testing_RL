@@ -13,25 +13,21 @@ import torch
 from bw_framework import EXPERT_INDICES
 import matplotlib
 from matplotlib import pyplot as plt
-from sklearn.neighbors import NearestNeighbors
 from collections.abc import Iterable
 
 from common import (
-    MEAS_INDICES,
-    MEAS_STR_INDICES,
-    MEASURES,
-    assemble_n_results,
     bin_observation,
     compute_cell_filling,
     dump_results,
     get_expert_bin_edges,
-    get_measures_edges,
     read_results_from_folder,
 )
 
 FAULT_LABEL = "#Faults"
-AXIS_LABEL_FONTSIZE = 17
-TITLE_LABEL_FONTSIZE = 18
+AXIS_LABEL_FONTSIZE = 19
+AXIS_TICKLABELS_FONTSIZE = 14
+TITLE_LABEL_FONTSIZE = 20
+LEGEND_LINEWIDTH = 6
 
 USE_CASES = ["Bipedal Walker", "Highway", "Lunar Lander"]
 
@@ -152,137 +148,43 @@ def accumulate_uniques(
     return acc_list
 
 
-def knn_dists(data: np.ndarray, k: int) -> np.ndarray:
+def fetch_results(folder_name: str):
     """
-    Distance to k nearest neighbours.
-    This is the sparseness criterion of the original novelty search paper.
-    Intuitively, if the average distance to a given point's nearest
-    neighbors is large then it is in a sparse area; it is in a dense region if the average
-    distance is small.
-    It returns all the mean distances.
+    Returns all the results found in the local folder `folder_name`.
+
+    **It assumes that the same folder exists in ../highway/**.
     """
-    if not isinstance(data, np.ndarray):
-        return np.nan
-    u_data = np.unique(data, axis=0)
-    # nb_totals = data.shape[0]
-    # nb_uniques = u_data.shape[0]
-    # print(f'{nb_uniques} out of {nb_totals} points are unique')
-    if len(u_data.shape) == 1:
-        u_data = u_data.reshape(-1, 1)
-    neighbors = NearestNeighbors(n_neighbors=k).fit(u_data)
-    distances, _ = neighbors.kneighbors()
-    return np.mean(distances, axis=1)
+    use_cases = ["bw", "ll"]
+    methods = ["ns", "rt", "mdpfuzz", "qd"]
 
-
-#####################################################################################
-################################### Novelty Search data analysis ####################
-
-
-def ns_analysis(ns_res: List[Dict]):
-    """Updates each dictionary in the input list, assuming the results come from NS runs.
-
-    Parameters
-    ----------
-    ns_res : List[Dict]
-        The dictionaries to update. They must contain the entries "config" and "ns_logs".
-
-    Returns
-    -------
-    List[Dict]
-        The input data, with the new entries "archive_sizes" and "archive_sparsenesses", and the already existing one "config" updated.
-    """
-    for res in ns_res:
-        # adds the popsize and nov_threshold parameters to the name
-        popsize = res["config"]["pop_size"]
-        t = res["config"]["nov_threshold"]
-        ns_logs_df: pd.DataFrame = res["ns_logs"]
-
-        res["config"]["name"] += f" popsize/threshold = ({popsize}, {t})"
-        res["archive_sizes"] = [
-            s for s in ns_logs_df["archive_size"].to_numpy() for _ in range(popsize)
-        ]
-        res["archive_sparsenesses"] = [
-            s
-            for s in ns_logs_df["archive_sparseness"].to_numpy()
-            for _ in range(popsize)
-        ]
-    return ns_res
-
-
-def plot_ns_analysis(ns_res: List[Dict]):
-    def compute_statistics(
-        data,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """Helper that computes statistical results from a set of results."""
-        if not isinstance(data, np.ndarray):
-            data: np.ndarray = np.array(data)
-        x = np.arange(data.shape[1])
-        y = np.median(data, axis=0)
-        perc_25 = np.percentile(data, 25, axis=0)
-        perc_75 = np.percentile(data, 75, axis=0)
-        return y, perc_25, perc_75, x
-
-    use_cases: List[str] = np.unique([d["config"]["use_case"] for d in ns_res]).tolist()
-    nb_use_cases = len(use_cases)
-    methods_names: List[str] = np.unique([d["config"]["name"] for d in ns_res]).tolist()
-    cmap = plt.cm.jet  # plt.cm.jet is a LinearSegmentedColormap
-    rgba_colors = [cmap(i) for i in np.linspace(0, 1, len(methods_names))]
-    colors_dict = {n: c for n, c in zip(methods_names, rgba_colors)}
-
-    fig, axs = plt.subplots(nrows=nb_use_cases, ncols=2, figsize=(15, 7 * nb_use_cases))
-    if nb_use_cases == 1:
-        axs = [axs]
-
-    axs[0][0].set_title("Archive sizes")
-    axs[0][1].set_title("(distinct) #Faults")
-    for u in range(nb_use_cases):
-        axs[u][0].set_ylabel(use_cases[u])
-        axs[u][0].set_xlabel("#Iterations")
-        axs[u][1].set_xlabel("#Iterations")
-
-        for method_name in methods_names:
-            sub_results = [
-                d
-                for d in ns_res
-                if (d["config"]["use_case"] == use_cases[u])
-                and (d["config"]["name"] == method_name)
-            ]
-            if len(sub_results) == 0:
-                print(
-                    f"No result found for use-case {use_cases[u]} and methodology {method_name}"
+    results = sum(
+        [
+            read_results_from_folder(
+                f"{folder_name}/{u}/{m}/",
+                include_final_states=True,
+                include_expert_behaviors=True
+            )
+            for u in use_cases for m in methods],
+        []
+    )
+    results.extend(
+        sum(
+            [
+                read_results_from_folder(
+                    f"../highway/{folder_name}/hw/{m}/",
+                    include_final_states=True,
+                    include_expert_behaviors=True
                 )
-                continue
-            color = colors_dict[method_name]
-            label = method_name
-
-            sizes = [d["archive_sizes"] for d in sub_results]
-            y, perc_25, perc_75, x = compute_statistics(sizes)
-            axs[u][0].plot(x, y, color=color, label=label)
-            axs[u][0].fill_between(
-                x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-            )
-
-            inputs = [d["inputs"] for d in sub_results]
-            oracles = [d["logs"]["oracle"].to_numpy() for d in sub_results]
-            nb_faults = compute_evolution_fault_triggering_inputs(inputs, oracles)
-            y, perc_25, perc_75, x = compute_statistics(nb_faults)
-            color = colors_dict[method_name]
-            label = method_name
-            axs[u][1].plot(x, y, color=color, label=label)
-            axs[u][1].fill_between(
-                x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-            )
-    legend = axs[-1][0].legend(title="Testing Methodology")
-    legend_frame = legend.get_frame()
-    legend_frame.set_facecolor("0.9")
-    legend_frame.set_edgecolor("0.9")
-
-    fig.tight_layout()
-    return (fig, axs)
+                for m in methods
+            ],
+            []
+        )
+    )
+    return results
 
 
 ##############################################################################################
-#################################### Plotting parameters #####################################
+#################################### Plotting Helpers #####################################
 
 
 def color_data(
@@ -300,8 +202,44 @@ def color_data(
     return use_cases, methods_names, colors_dict
 
 
+def post_process_label(label: str):
+    linestyle = "solid"
+
+    if label.startswith("MDPFuzz"):
+        label += "$\mathbf{^*}$"
+
+    elif "+" in label:
+        label = label.replace("MAP-Elites", "ME")
+        label = label.replace("Novelty Search", "NS")
+
+        if "MAE+LS" in label:
+            linestyle = "dotted"
+        elif "MAE+ML" in label:
+            linestyle = "dashed"
+        elif "AAE+LS" in label:
+            linestyle = "dashdot"
+
+    return label, linestyle
+
+
+def legend_axis(ax):
+    legend = ax.legend(
+        prop={"size": 11},
+        ncol=2,
+        labelspacing=1.05,
+        handletextpad=1.025,
+        borderpad=1.025,
+        borderaxespad=1.0,
+        loc="upper left"
+    )
+    legend_frame = legend.get_frame()
+    legend_frame.set_facecolor("0.9")
+    legend_frame.set_edgecolor("0.9")
+    return ax
+
+
 ##############################################################################################
-############ RQ1: How many (distinct) fault-triggering inputs do frameworks find? ############
+############################## RQ1: Fault Discovery ##########################################
 
 
 def compute_evolution_fault_triggering_inputs(
@@ -384,14 +322,8 @@ def plot_rq1_results(
         for name, data in data.items():
             color = colors_dict[name]
             label = name
-            if "MAE+LS" in label:
-                linestyle = "dotted"
-            elif "MAE+ML" in label:
-                linestyle = "dashed"
-            elif "AAE+LS" in label:
-                linestyle = "dashdot"
-            else:
-                linestyle = "solid"
+            label, linestyle = post_process_label(label)
+
             if isinstance(data, np.ndarray):
                 ax.plot(np.arange(len(data)), data, color=color, label=label, linestyle=linestyle, linewidth=2)
             else:
@@ -419,7 +351,7 @@ def plot_rq1_results(
 
 
 #############################################################################################################
-################## RQ2: How well QD-based testing methodologies improve test coverage/diversity? ############
+################# RQ2.1: Testing and Fault Diversity of the Final States ####################################
 
 
 def compute_evolution_cells(data: List[pd.DataFrame]):
@@ -438,11 +370,9 @@ def load_obs_space_edges(use_case: str, num_bins: int = 20) -> np.ndarray:
     elif use_case.capitalize().startswith("H"):
         return np.load(f"grid/hw/obs_space_edges_{num_bins}.npy")
 
-    elif use_case.capitalize().startswith("T"):
-        return np.load(f"grid/tt/obs_space_edges_{num_bins}.npy")
-
     else:
         raise ValueError(f"No edges available for use case {use_case}.")
+
 
 def compute_obs_coverage(results: List[Dict]):
     use_cases: List[str] = np.unique(
@@ -523,40 +453,6 @@ def compute_obs_coverage(results: List[Dict]):
     return use_cases, results_dicts, fresults_dicts
 
 
-def compute_relative_performance(
-    results: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]],
-    name_ref: str = "Random Testing",
-):
-    """
-    Returns the relative performance to the set of results labeled ``name_ref``.
-    Even though it assumes statistical results (as medians and 1/3 quantiles), the relative performance is computed on the medians only.
-    """
-    relative_results: Dict[str, np.ndarray] = {}
-    if results.get(name_ref, None) is None:
-        print(f"No result found for the reference {name_ref}.")
-        return results
-    m_ref, q1_ref, q3_ref = results[name_ref]
-    for name, (m, q1, q3) in results.items():
-        relative_results[name] = ((m - m_ref) / m_ref) + 1
-    return relative_results
-
-
-def legend_axis(ax):
-    legend = ax.legend(
-        prop={"size": 11},
-        ncol=2,
-        labelspacing=1.05,
-        handletextpad=1.025,
-        borderpad=1.025,
-        borderaxespad=1.0,
-        loc="upper left"
-    )
-    legend_frame = legend.get_frame()
-    legend_frame.set_facecolor("0.9")
-    legend_frame.set_edgecolor("0.9")
-    return ax
-
-
 def plot_coverage_results(
     use_cases: List[str],
     colors_dict: Dict[str, Tuple],
@@ -584,18 +480,8 @@ def plot_coverage_results(
         for name in cov_results[u].keys():
             color = colors_dict[name]
             label = name
-            if "MAP-Elites" in label:
-                label = label.replace("MAP-Elites", "ME")
-            if "Novelty Search" in label:
-                label = label.replace("Novelty Search", "NS")
-            if "MAE+LS" in label:
-                linestyle = "dotted"
-            elif "MAE+ML" in label:
-                linestyle = "dashed"
-            elif "AAE+LS" in label:
-                linestyle = "dashdot"
-            else:
-                linestyle = "solid"
+            label, linestyle = post_process_label(label)
+
             # BS coverage (statistical)
             ax = axs[u][0]
             y, perc_25, perc_75 = cov_results[u][name]
@@ -616,18 +502,6 @@ def plot_coverage_results(
     return (fig, axs)
 
 
-def plot_rq2_ebs_results(
-    use_cases: List[str],
-    colors_dict: Dict[str, Tuple],
-    ebs_results: List[Dict[str, Tuple]],
-    faulty_ebs_results: List[Dict[str, np.ndarray]],
-):
-    fig, axs = plot_coverage_results(use_cases, colors_dict, ebs_results, faulty_ebs_results)
-    axs[0][0].set_title("#Expert Behaviors", fontsize=TITLE_LABEL_FONTSIZE)
-    axs[0][1].set_title("#Faulty Expert Behaviors", fontsize=AXIS_LABEL_FONTSIZE)
-    fig.tight_layout()
-    return fig, axs
-
 def plot_rq2_fobs_results(
     use_cases: List[str],
     colors_dict: Dict[str, Tuple],
@@ -641,140 +515,8 @@ def plot_rq2_fobs_results(
     return fig, axs
 
 
-def plot_n_results(
-    use_cases: List[str],
-    env_seeds: List[int],
-    results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]],
-    colors_dict: Dict[str, Tuple],
-    additional_results: List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]] = None,
-    x_axis: str = "iterations"
-):
-    """
-    Plots any statistical results for each use case and n.
-    `results` is assumed to be ordered w.r.t to `use_cases`.
-    Use cases are shown horizontally (with the different values of n).
-
-    Parameters
-    ----------
-    use_cases : List[str]
-        Names of the use cases.
-    env_seeds : List[int]
-        Number of seeds (i.e. n) used for each result in `results`' values.
-    results : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]]
-        List of dictionaries whose keys are the names of the methods, and values are a list of statistical data (tuple of 3 numpy arrays of equal length); one for each n value.
-        As such, the length of results must equal the one of `use_cases`, and all the values in all the dictionaries must be of length equal to one of `env_seeds`.
-    additional_results : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]], optinal
-        Additional results to show, cf. RQ2 and RQ3. Notably, the results are assumed to come from the same methods. They are plotted with dashed lines.
-    x_axis : str, optional
-        Mode for the x axis. Must be either:
-        - "iterations": no manipulation of the data.
-        - "executions": each value in the data is repeated w.r.t `env_seeds`.
-
-        Default to "iterations".
-
-    Returns
-    -------
-    (fig, axes)
-    """
-    assert x_axis in ["iterations", "executions"]
-    assert len(use_cases) == len(results)
-    if not all([l == len(env_seeds) for l in sum([[len(r) for r in d.values()] for d in results], [])]):
-        warnings.warn("Not all the lists of results in `results`' dictionaries have |env_seeds| data...")
-
-    fig_size = 5
-    fig, axes = plt.subplots(
-        nrows=len(use_cases),
-        ncols=len(env_seeds),
-        figsize=(fig_size * len(env_seeds), fig_size * len(use_cases)),
-        sharey="row",
-        # sharex=True
-        sharex=True if x_axis == "iterations" else "col"
-    )
-
-    if len(use_cases) == 1:
-        axes = [axes]
-        axes[0].grid(axis="both", color="0.9", linestyle="-", linewidth=1)
-    else:
-        [ax.grid(axis="both", color="0.9", linestyle="-", linewidth=1) for ax in axes.flat]
-
-    [ax.set_xlabel(f"#{x_axis.capitalize()}", fontsize=AXIS_LABEL_FONTSIZE) for ax in axes[-1]]
-    [ax.set_title(f"N={n}", fontsize=AXIS_LABEL_FONTSIZE) for (ax, n) in zip(axes[0], env_seeds)]
-    [ax.set_ylabel(case.capitalize(), fontsize=AXIS_LABEL_FONTSIZE) for (ax, case) in zip([a[0] for a in axes], use_cases)]
-
-    def _repeat_data(arr: np.ndarray, n: int):
-        return  np.array(
-            sum(
-                [[v for _ in range(n)] for v in arr],
-                []
-            )
-        )
-
-    for (data, axs) in zip(results, axes):
-        for name, res_list in data.items():
-            for i, (y, perc_25, perc_75) in enumerate(res_list):
-                ax = axs[i]
-                color = colors_dict[name]
-                label = name
-                if x_axis != "iterations":
-                    n = env_seeds[i]
-                    x = np.arange(len(y) * n)
-                    y = _repeat_data(y, n)
-                    perc_25 = _repeat_data(perc_25, n)
-                    perc_75 = _repeat_data(perc_75, n)
-                else:
-                    x = np.arange(len(y))
-
-                ax.plot(x, y, color=color, label=label, linewidth=2)
-                ax.fill_between(
-                    x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-                )
-
-    if additional_results is not None:
-        for (data, axs) in zip(additional_results, axes):
-            for name, res_list in data.items():
-                for i, (y, perc_25, perc_75) in enumerate(res_list):
-                    ax = axs[i]
-                    color = colors_dict[name]
-                    label = name
-                    if x_axis != "iterations":
-                        n = env_seeds[i]
-                        x = np.arange(len(y) * n)
-                        y = _repeat_data(y, n)
-                        perc_25 = _repeat_data(perc_25, n)
-                        perc_75 = _repeat_data(perc_75, n)
-                    else:
-                        x = np.arange(len(y))
-
-                    ax.plot(x, y, color=color, linewidth=2, linestyle="dashed")
-                    ax.fill_between(
-                        x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-                    )
-
-    # xticks = np.arange(0, 1 + max([s for s in env_seeds]) * 5000, 5000)
-    # ax.set_xticks(
-    #     xticks
-    # )
-    # ax.set_xticklabels(
-    #     ["0"] + [f"{i}K" for i in range(1, len(xticks))]
-    #     )
-    ax = axes[np.argmax([len(d.keys()) for d in results])][0]
-    legend = ax.legend(
-        prop={"size": 10},
-        labelspacing=1.1,
-        handletextpad=1.05,
-        borderpad=1.05,
-        borderaxespad=1.0,
-    )
-    legend_frame = legend.get_frame()
-    legend_frame.set_facecolor("0.9")
-    legend_frame.set_edgecolor("0.9")
-    fig.tight_layout()
-    return (fig, axes)
-
-
 #############################################################################################################
-##################### NEW RQ2: coverage of the different expert behavior spaces #############################
-##################### UNUSED RQ2: coverage of the generic behavior spaces ###################################
+##################### RQ2.2: Testing and Fault Diversity in the Expert Space ################################
 
 
 def compute_expert_behaviors_coverage(data: List[Dict]):
@@ -869,301 +611,93 @@ def compute_expert_behaviors_coverage(data: List[Dict]):
     return ebs_coverages, faulty_ebs_coverages
 
 
-def compute_measures_coverage(
-    data: List[Dict], meas_indices: List[Tuple[int, int]] = MEAS_INDICES
-):
-    """Similar to `compute_expert_behaviors_coverage` but the data used is the multi-dimensional generic behaviors.
-
-
-    Parameters
-    ----------
-    data : List[Dict]
-        List of dictionaries of results. They must contain the entries ``config`` and ``behaviors``.
-    meas_indices : List[Tuple[int, int]], optional
-        List of index pairs of the 2D generic behavior spaces. Default to MEAS_INDICES.
-
-    Returns
-    -------
-    meas_coverage : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]]
-        List of dictionaries per use case. The results of each method consists of three numpy arrays, and are indexed by their name.
-    fmeas_coverage : List[Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]]]
-        Same as `meas_coverage`, except that only fault triggering data is accounted for.
-    """
-    use_cases: List[str] = np.unique([d["config"]["use_case"] for d in data]).tolist()
-    methods_names: List[str] = np.unique([d["config"]["name"] for d in data]).tolist()
-
-    def compute_statistics(data) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if not isinstance(data, np.ndarray):
-            data: np.ndarray = np.array(data)
-        y = np.median(data, axis=0)
-        perc_25 = np.percentile(data, 25, axis=0)
-        perc_75 = np.percentile(data, 75, axis=0)
-        return y, perc_25, perc_75
-
-    ebs_coverages = []
-    faulty_ebs_coverages = []
-    for case in use_cases:
-        ebs_cov = {}
-        faulty_ebs_cov = {}
-
-        edges = get_measures_edges(case)
-
-        for method_name in methods_names:
-            method_data = [
-                d
-                for d in data
-                if (d["config"]["use_case"] == case)
-                and (d["config"]["name"] == method_name)
-            ]
-
-            if len(method_data) == 0:
-                warnings.warn(
-                    f"No result found for use-case {case} and methodology {method_name}",
-                    RuntimeWarning,
-                )
-                continue
-
-            # cells of each behavior space per run (i.e., list of list)
-            meas_cells = [
-                compute_cell_filling(
-                    behaviors=d["behaviors"],
-                    descriptor_indices_list=meas_indices,
-                    edges=[edges[idx] for idx in meas_indices],
-                )
-                for d in method_data
-            ]
-            meas_cells = np.array(meas_cells)
-            # oracles per run
-            oracles = [
-                d["logs"]["oracle"].to_numpy()  # type: np.ndarray
-                for d in method_data
-            ]
-
-            ebs_cov[method_name] = [
-                compute_statistics(accumulate_uniques(meas_cells[:, meas_index, :]))
-                for meas_index in range(len(meas_indices))
-            ]
-            faulty_ebs_cov[method_name] = [
-                compute_statistics(
-                    [
-                        res[-1]
-                        for res in filter_data(oracles, meas_cells[:, meas_index, :])
-                    ]
-                )
-                for meas_index in range(len(meas_indices))
-            ]
-
-        ebs_coverages.append(ebs_cov)
-        faulty_ebs_coverages.append(faulty_ebs_cov)
-
-    return ebs_coverages, faulty_ebs_coverages
-
-
-def plot_rq2_meas_results(
+def plot_rq2_ebs_results(
+    use_cases: List[str],
     colors_dict: Dict[str, Tuple],
-    meas_dict: Dict[str, List[Tuple[np.ndarray, np.ndarray, np.ndarray]]],
-    measures: List[str] = MEASURES,
-    meas_str_indices: List[Tuple[str, str]] = None,
-    meas_indices: List[Tuple[int, int]] = None,
+    ebs_results: List[Dict[str, Tuple]],
+    faulty_ebs_results: List[Dict[str, np.ndarray]],
 ):
-    """Plots the coverage of generic behavior spaces for a single use case.
-
-    Parameters
-    ----------
-    measures : List[str], optional
-        Names of the generic features. Default to MEASURES.
-    meas_str_indices : List[Tuple[str, str]], optional
-        List of dimension's name pairs. Inferred from `meas_indices` if not provided.
-    meas_indices : List[Tuple[int, int]], optional
-        List of index pairs of the 2D generic behavior spaces. Inferred from `meas_str_indices` if not provided.
-    """
-
-    if (meas_str_indices is None) and (meas_indices is None):
-        if measures != MEASURES:
-            raise ValueError(
-                "Indices (either as str and int) must be specified in case of none default measures."
-            )
-        meas_str_indices = MEAS_STR_INDICES
-        meas_indices = MEAS_INDICES
-
-    # infers the str (int) indices from the int (str) ones, respectively
-    if meas_str_indices is None:
-        assert meas_indices is not None
-        meas_str_indices = [[measures[i], measures[j]] for (i, j) in meas_indices]
-    if meas_indices is None:
-        assert meas_str_indices is not None
-        meas_str_indices = [
-            [measures[measures.index(i)], measures[measures.index(j)]]
-            for (i, j) in meas_indices
-        ]
-
-    x_axes = list(set([meas_str_indices[i][0] for i in range(len(meas_str_indices))]))
-    y_axes = list(set([meas_str_indices[i][1] for i in range(len(meas_str_indices))]))
-
-    fig, axs = plt.subplots(
-        nrows=len(y_axes),
-        ncols=len(x_axes),
-        figsize=(len(x_axes) * 5, len(y_axes) * 5),
-        # sharex="col",
-        # sharey="row"
-    )
-    [ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1) for ax in axs.flat]
-
-    for i in range(len(x_axes)):
-        for j in range(len(y_axes)):
-
-            data_index = meas_indices.index(
-                [measures.index(x_axes[i]), measures.index(y_axes[j])]
-            )
-
-            for name in meas_dict.keys():
-                color = colors_dict[name]
-                label = name
-                # BS coverage (statistical)
-                ax = axs[j][i]
-                y, perc_25, perc_75 = meas_dict[name][data_index]
-                x = np.arange(len(y))
-                ax.plot(x, y, color=color, label=label)
-                ax.fill_between(
-                    x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-                )
-                ax.set_xlabel(x_axes[i])
-                ax.set_ylabel(y_axes[j])
-                # once every methodology's results is displayed, adds the legend
-    ax = axs.flatten()[-1]
-    legend = ax.legend(
-        prop={"size": 10},
-        labelspacing=1.1,
-        handletextpad=1.05,
-        borderpad=1.05,
-        borderaxespad=1.0,
-    )
-    legend_frame = legend.get_frame()
-    legend_frame.set_facecolor("0.9")
-    legend_frame.set_edgecolor("0.9")
+    fig, axs = plot_coverage_results(use_cases, colors_dict, ebs_results, faulty_ebs_results)
+    axs[0][0].set_title("#Expert Behaviors", fontsize=TITLE_LABEL_FONTSIZE)
+    axs[0][1].set_title("#Faulty Expert Behaviors", fontsize=AXIS_LABEL_FONTSIZE)
     fig.tight_layout()
-    return (fig, axs)
+    return fig, axs
 
 
-def plot_rq3_results(
-        data_lists: List[List[Dict[str, list]]],
+#############################################################################################################
+######################## Main RQs' Plotting Functions #######################################################
+
+
+def plot_summary_results(
+        data_lists: List[List[Dict]],
         colors_dict: Dict[str, Tuple[float]],
-        env_seeds: List[int],
         use_cases: List[str] = None,
         ylabels: List[str] = None,
-        x_axis: str = "iterations"):
-
+        sharey: str = "row",
+        figsize: Tuple[int, int] = (4, 5)):
     if use_cases is None:
         use_cases = np.arange(np.max([len(l) for l in data_lists]))
 
     nrows = len(data_lists)
     ncols = len(use_cases)
 
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(6*ncols, 4.5*nrows), sharex="all", sharey="none")
-
-    if nrows == 1:
-        axes = np.expand_dims(axes, axis=0)  # type: np.ndarray
-    if ncols == 1:
-        axes = np.expand_dims(axes, axis=1)  # type: np.ndarray
-    assert len(axes.shape) == 2
+    s0, s1 = figsize
+    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(s0*nrows, s1*ncols), sharex="all", sharey=sharey)
 
     if ylabels is None:
         ylabels = ["" for _ in range(nrows)]
-    for ax in axes.flat:
+    for ax in axs.flat:
         ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
 
-    def _repeat_data(arr: np.ndarray, n: int):
-        return  np.array(
-            sum(
-                [[v for _ in range(n)] for v in arr],
-                []
-            )
-        )
-
-    # distinct per-method N plotting with linestyling
-    linestyles = ["dotted", "dashed", "dashdot", "solid"]
-    assert len(env_seeds) <= len(linestyles), "Too many different env_seeds (n values) to plot."
-
-    # per row (i.e. metric/result)
     for r, data in enumerate(data_lists):
-        axes[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
+        axs[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
         for c in range(ncols):
-            ax = axes[r][c]
+            ax = axs[r][c]
             case_dict = data[c]
-            for name, res_list in case_dict.items():
-                # list of stats results per method (for different n values)
-                for i, (y, perc_25, perc_75) in enumerate(res_list):
-                    color = colors_dict[name]
-                    # label = f"{name} N={env_seeds[i]}"
-                    label = name
+            for name in case_dict.keys():
+                to_plot = case_dict[name]
+                color = colors_dict[name]
+                label = name  # type: str
+                label, linestyle = post_process_label(label)
 
-                    if "MAP-Elites" in label:
-                        label = label.replace("MAP-Elites", "ME")
-                    if "Novelty Search" in label:
-                        label = label.replace("Novelty Search", "NS")
-                    if "Radom Testing" in label:
-                        label = label.replace("Radom Testing", "RT")
-
-                    if x_axis != "iterations":
-                        n = env_seeds[i]
-                        x = np.arange(len(y) * n)
-                        y = _repeat_data(y, n)
-                        # perc_25 = _repeat_data(perc_25, n)
-                        # perc_75 = _repeat_data(perc_75, n)
-                    else:
-                        x = np.arange(len(y))
-
-                    ax.plot(x, y, color=color, label=(label if i == len(env_seeds) - 1  else None), linewidth=2, linestyle=linestyles[i])
-                    # ax.fill_between(
-                    #     x, perc_25, perc_75, alpha=0.15, linewidth=0, color=color
-                    # )
-
-    def legend_axis(ax):
-        legend = ax.legend(prop={"size": 10}, ncol=1, labelspacing=1.1, handletextpad=1.05, borderpad=1.05, borderaxespad=1.0, loc="upper left")
-        legend_frame = legend.get_frame()
-        legend_frame.set_facecolor("0.9")
-        legend_frame.set_edgecolor("0.9")
-
-
-        custom_lines = [
-            Line2D([0], [0], color="black", linestyle=style, linewidth=2)
-            for style in linestyles
-        ]
-
-        custom_labels = [r"$n = {}$".format(i) for i in env_seeds]
-        custom_legend = Legend(
-            ax,
-            custom_lines,
-            custom_labels,
-            loc="lower right",
-            labelspacing=1.1,
-            handletextpad=1.0,
-            handlelength=3, # default is 2
-            borderpad=1.0,
-            borderaxespad=1.0,
-            prop={"size": 10}
-        )
-        legend_frame = custom_legend.get_frame()
-        legend_frame.set_facecolor("0.9")
-        legend_frame.set_edgecolor("0.9")
-
-        ax.add_artist(custom_legend)
-        return ax
-
+                if isinstance(to_plot, np.ndarray):
+                    x = np.arange(len(to_plot))
+                    assert len(x) == len(to_plot)
+                    ax.plot(x, to_plot, color=color, label=label, linewidth=2, linestyle=linestyle)
+                else:
+                    # assert np.all([len(x) == len(tmp) for tmp in to_plot])
+                    y, perc_25, perc_75 = to_plot
+                    x = np.arange(len(y))
+                    ax.plot(x, y, color=color, label=label, linestyle=linestyle, linewidth=2)
+                    ax.fill_between(x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color)
+        if r % 2 == 0:
+            ax = axs[r][1]
+            legend = ax.legend(
+                prop={"size": 13.5},
+                labelspacing=0.7,
+                handletextpad=0.8, # default
+                borderpad=0.5,
+                borderaxespad=1.0,
+                ncol=2 if len(ax.get_legend_handles_labels()[1]) > 4 else 1,
+                columnspacing=1.0 # default 2.0
+            )
+            legend_frame = legend.get_frame()
+            legend_frame.set_facecolor("0.9")
+            legend_frame.set_edgecolor("0.9")
     for c in range(ncols):
-        axes[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
+        axs[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
     fig.tight_layout()
+    return (fig, axs)
 
-    return (fig, axes), legend_axis
 
-
-def boxplot_rq3_results(
+def plot_rq4_results(
         data_lists: List[List[Dict[str, list]]],
         colors_dict: Dict[str, Tuple[float]],
         env_seeds: List[int],
         use_cases: List[str] = None,
         ylabels: List[str] = None
     ):
+    """Boxplot of the n study analysis."""
 
     if use_cases is None:
         use_cases = np.arange(np.max([len(l) for l in data_lists]))
@@ -1173,9 +707,8 @@ def boxplot_rq3_results(
 
     fig, axes = plt.subplots(
         nrows=nrows, ncols=ncols,
-        figsize=(6*ncols, 4*nrows),
-        sharex="all", sharey="none"
-    )
+        figsize=(6*ncols, 3.5*nrows), #4
+        sharex="all", sharey="none")
 
     if ylabels is None:
         ylabels = ["" for _ in range(nrows)]
@@ -1227,7 +760,10 @@ def boxplot_rq3_results(
                 for i, (y, perc_25, perc_75) in enumerate(res_list):
                     color = colors_dict[name]
                     colors.append(color)
-                    box_data.append(_box_data(y[-1], perc_25[-1], perc_75[-1], label=name))
+
+                    label, _ = post_process_label(name)
+
+                    box_data.append(_box_data(y[-1], perc_25[-1], perc_75[-1], label=label))
                     # does not use the xticks directly in case of missing data
                     positions.append(xticks[i + k * len(env_seeds)])
 
@@ -1270,7 +806,7 @@ def boxplot_rq3_results(
                     method_names.add(k)
 
         legend_handles = [
-            Patch(facecolor=colors_dict[name], edgecolor="black", label=name)
+            Patch(facecolor=colors_dict[name], edgecolor="black", label=post_process_label(name)[0])
             for name in method_names
         ]
         legend_kwargs = {
@@ -1278,9 +814,9 @@ def boxplot_rq3_results(
             "labelspacing": 1.1,
             "handletextpad": 1.0,
             "handlelength": 3, # default is 2
-            "borderpad": 1.0,
+            "borderpad": 0.5,
             "borderaxespad": 1.0,
-            "prop": {"size": 10}
+            "prop": {"size": 12}
         }
         legend_kwargs.update(kwargs)
         legend = ax.legend(**legend_kwargs)
@@ -1291,11 +827,12 @@ def boxplot_rq3_results(
 
     return (fig, axes), legend_axis
 
+
 ##############################################################################
 ################################## MAIN ######################################
 
 
-def load_data():
+def load_results_data():
     # LL
     ll_results = read_results_from_folder(
         "results_new/ll/qd/",
@@ -1307,12 +844,6 @@ def load_data():
             read_results_from_folder(f"results_new/ll/{m}/", include_final_states=True, include_expert_behaviors=True)
         )
         for m in ["ns", "rt", "mdpfuzz"]
-    ]
-    [
-        ll_results.extend(
-            read_results_from_folder(f"results_new2/ll/{m}/", include_final_states=True, include_expert_behaviors=True)
-        )
-        for m in ["ns", "rt", "mdpfuzz", "qd"]
     ]
 
     # BW
@@ -1327,12 +858,6 @@ def load_data():
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
-    [
-        bw_results.extend(
-            read_results_from_folder(f"results_new2/bw/{m}/", include_final_states=True, include_expert_behaviors=True)
-        )
-        for m in ["ns", "rt", "mdpfuzz", "qd"]
-    ]
 
     # HW
     hw_results = read_results_from_folder(
@@ -1346,12 +871,7 @@ def load_data():
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
-    [
-        hw_results.extend(
-            read_results_from_folder(f"../highway/results_new2/hw/{m}/", include_final_states=True, include_expert_behaviors=True)
-        )
-        for m in ["ns", "rt", "mdpfuzz", "qd"]
-    ]
+
     # renames the QD-based methods w.r.t the descriptor pair used
     for d in ll_results + bw_results + hw_results:
         if "name" not in d["config"]:
@@ -1364,48 +884,15 @@ def load_data():
 
     return bw_results + ll_results + hw_results
 
-def fetch_result_data(folder_name: str):
-    """
-    Returns all the results found in the local folder `folder_name`.
-
-    **It assumes that the same folder exists in ../highway/**.
-    """
-    use_cases = ["bw", "ll"]
-    methods = ["ns", "rt", "mdpfuzz", "qd"]
-
-    results = sum(
-        [
-            read_results_from_folder(
-                f"{folder_name}/{u}/{m}/",
-                include_final_states=True,
-                include_expert_behaviors=True
-            )
-            for u in use_cases for m in methods],
-        []
-    )
-    results.extend(
-        sum(
-            [
-                read_results_from_folder(
-                    f"../highway/{folder_name}/hw/{m}/",
-                    include_final_states=True,
-                    include_expert_behaviors=True
-                )
-                for m in methods
-            ],
-            []
-        )
-    )
-    return results
-
 
 # exec(open('result_analysis.py').read())
 if __name__ == "__main__":
     torch.set_num_threads(1)
+    folder = "data_new"
 
     ####################### Raw data loading #######################
 
-    first_results = load_data()
+    first_results = load_results_data()
 
     use_cases, method_names, colors_dict = color_data(first_results)
     print(method_names, use_cases, len(first_results))
@@ -1418,7 +905,6 @@ if __name__ == "__main__":
     # expert behavior coverage
     ebs_cov, efbs_cov = compute_expert_behaviors_coverage(first_results)
     # stores the results of the analysis
-    folder = "data_new"
     for case in use_cases:
         sub_folder = f"{folder}/{case}"
         Path(sub_folder).mkdir(parents=True, exist_ok=True)
@@ -1432,39 +918,70 @@ if __name__ == "__main__":
     dump_results(obs_coverage_results, [f"{folder}/{case}/obs_cov" for case in cases])
     dump_results(fobs_coverage_results, [f"{folder}/{case}/fobs_cov" for case in cases])
 
+    print("Analysis computation done. Attempting to plot the results...")
+
     ########################### Plotting ###########################
 
-    fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
-    for ax in axs1.flat:
-        ax.tick_params(axis="both",labelsize=13)
-        legend = ax.legend_
-        if legend is not None:
-            for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
-    fig1.savefig("rq1.png")
+    try:
+        fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
+        for ax in axs1.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+            legend = ax.legend_
+            if legend is not None:
+                for line in legend.get_lines():
+                    plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        fig1.savefig(f"{folder}/rq1.png")
+    except:
+        print("failed to plot fault detection.")
 
-    fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, efbs_cov)
-    axs2[0][-1].legend_ = None
-    axs2[1][-1].legend_ = None
-    legend = axs2[-1][-1].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
-    for ax in axs2.flat:
-        ax.tick_params(axis="both", labelsize=12)
-    fig2.savefig("rq21.png")
+    try:
+        fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, efbs_cov)
+        axs2[0][-1].legend_ = None
+        axs2[1][-1].legend_ = None
+        legend = axs2[-1][-1].legend_
+        for line in legend.get_lines():
+            plt.setp(line, linewidth=AXIS_TICKLABELS_FONTSIZE)
+        for ax in axs2.flat:
+            ax.tick_params(axis="both", labelsize=LEGEND_LINEWIDTH)
+        fig2.savefig(f"{folder}/rq21.png")
+    except:
+        print("failed to plot expert coverage.")
 
-    fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
-    axs2[0][-1].legend_ = None
-    axs2[1][-1].legend_ = None
-    legend = axs2[-1][-1].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
-    for ax in axs2.flat:
-        ax.tick_params(axis="both", labelsize=12)
-    fig2.savefig("rq22.png")
+    try:
+        fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
+        axs2[0][-1].legend_ = None
+        axs2[1][-1].legend_ = None
+        legend = axs2[-1][-1].legend_
+        for line in legend.get_lines():
+            plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        for ax in axs2.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+        fig2.savefig(f"{folder}/rq22.png")
+    except:
+        print("failed to plot final state coverage.")
+
+    try:
+        fig, axs = plot_summary_results(
+            [rq1_data, ebs_cov, efbs_cov, obs_coverage_results, fobs_coverage_results],
+            colors_dict,
+            USE_CASES,
+            ["#Faults", "#Expert Behaviors", "#Faulty Expert Behaviors", "#Final States", "#Faulty Final States"],
+            sharey="none",
+            figsize=(3.65, 8)
+        )
+        for ax in axs.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+            legend = ax.legend_
+            if legend is not None:
+                for line in legend.get_lines():
+                    plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        fig.set_facecolor("white")
+        fig.savefig(f"{folder}/rq.png")
+    except:
+        print("failed to plot summary plot.")
 
 
-    with open("colors_dict.json", "w") as file:
+    with open(f"{folder}/colors_dict.json", "w") as file:
         json.dump(colors_dict, file)
 
     print("DONE.")

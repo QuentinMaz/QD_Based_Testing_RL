@@ -8,9 +8,8 @@ from typing import Any, List, Tuple
 
 from bw_framework import BWFramework, BWExecutor
 from ll_framework import LLExecutor, LLFramework
-from tt_framework import TTExecutor, TTFramework
 
-from common import ENV_SEEDS, EXPERIMENT_SEEDS, MEASURES, load_lunar_lander_model, load_bipedal_walker_model, load_taxi_model
+from common import ENV_SEEDS, EXPERIMENT_SEEDS, MEASURES, load_lunar_lander_model, load_bipedal_walker_model
 from mdpfuzz.mdpfuzz import Fuzzer
 
 import argparse
@@ -24,7 +23,7 @@ def parse_arguments():
     parser.add_argument(
         "--use_case",
         type=str,
-        choices=["bw", "ll", "tt"],
+        choices=["bw", "ll"],
         help="Use case.",
         required=True,
     )
@@ -91,10 +90,7 @@ if __name__ == "__main__":
 
     nb_iterations = 50
     k = 3
-    if use_case == "tt":
-        novelty_threshold = 0.9
-    else:
-        novelty_threshold = 0.005
+    novelty_threshold = 0.005
 
     # parameters / configurations from arguments
     assert (seed_index >= 0) and (seed_index < len(EXPERIMENT_SEEDS)), f"Seed index: {seed_index}..."
@@ -126,7 +122,7 @@ if __name__ == "__main__":
             expert_indices=expert_indices # expert indices only used here
         )
         model = load_bipedal_walker_model()
-    elif use_case == "ll":
+    else:
         framework = LLFramework(
             seed,
             cell_granularity,
@@ -135,14 +131,6 @@ if __name__ == "__main__":
             input_space="force"
         )
         model = load_lunar_lander_model()
-    else:
-        framework = TTFramework(
-            seed,
-            cell_granularity,
-            features=MEASURES,
-            descriptors=descriptors,
-        )
-        model = load_taxi_model()
 
     if method == "rt":
         framework.random_testing(
@@ -153,12 +141,9 @@ if __name__ == "__main__":
         if use_case == "bw":
             executor = BWExecutor(seed, env_seeds, log_path=str(results_fp))
             exp_name = "Bipedal Walker"
-        elif use_case == "ll":
+        else:
             executor = LLExecutor(seed, env_seeds, log_path=str(results_fp))
             exp_name = "Lunar Lander"
-        else:
-            executor = TTExecutor(seed, env_seeds, log_path=str(results_fp))
-            exp_name = "Taxi"
 
         fuzzer_logs_path = executor.fp + "_fuzzer"
         fuzzer = Fuzzer(random_seed=seed, executor=executor, k=4, tau=0.1, gamma=0.01)

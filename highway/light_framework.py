@@ -101,28 +101,6 @@ class Framework:
         f.write(json.dumps(self.config))
         f.close()
 
-    def save_random_state(self, filepath: str):
-        """Saves the state of the BitGenerator instance (of the Generator)."""
-        f = open(f"{filepath}_state.json", "w")
-        f.write(json.dumps(self.rng.bit_generator.state))
-        f.close()
-        return self.rng.bit_generator.state
-
-    def save_state(self, filepath: str):
-        """
-        Saves the current state of the framework to possibly resume execution.
-        The resulting data is a .csv file export of a DataFrame and a .npy file of the inputs.
-        Both data shares the same order, which is not temporal (logs are though) but results from iterating over the results for each cell.
-        """
-        with open(f"{filepath}_data.csv", "w") as f:
-            f.write("")
-        with open(f"{filepath}_cells.txt", "w") as f:
-            f.write("")
-        # saves the random state
-        self.save_random_state(filepath)
-        # saves the configuration
-        self.save_configuration(filepath)
-
     def select_input(self, index: int):
         """Returns the current solution in the cell."""
         return self.cells_data[index][0]
@@ -142,11 +120,9 @@ class Framework:
             # none zero failure probability or lower acc. reward
             return (failure_prob != 0) or (acc_reward < curr_acc_r)
 
-
     def select_cell(self):
         """Selects the cell for the next search iteration."""
         return int(self.rng.integers(0, len(self.cells)))
-
 
     def update_cell(
         self,
@@ -375,7 +351,7 @@ class Framework:
         logs_buffer.close()
         for buffer in final_states_buffers + expert_behaviors_buffers:
             buffer.close()
-        self.save_state(filepath)
+        self.save_configuration(filepath)
 
     def random_testing(
         self,
@@ -475,8 +451,10 @@ class Framework:
         logs_buffer.close()
         for buffer in final_states_buffers + expert_behaviors_buffers:
             buffer.close()
-        self.save_state(filepath)
-
+        self.save_configuration(filepath)
+        # to keep logging consistency (but it should not be necessary)
+        with open(f"{filepath}_cells.txt", "w") as f:
+            f.write("")
 
 if __name__ == "__main__":
     from pathlib import Path
@@ -498,19 +476,19 @@ if __name__ == "__main__":
     results_fp = Path("test_env_seeds/hw")
     results_fp.mkdir(parents=True, exist_ok=True)
     (results_fp / "qd").mkdir(parents=True, exist_ok=True)
-    # (results_fp / "rt").mkdir(parents=True, exist_ok=True)
+    (results_fp / "rt").mkdir(parents=True, exist_ok=True)
 
     for seed in EXPERIMENT_SEEDS[:1]:
         print(f"Seed {seed} starts.")
 
-        # f = Framework(
-        #     seed,
-        #     cell_granularity,
-        #     features=FEATURES,
-        #     descriptors=descriptors,
-        #     name="Random Testing",
-        # )
-        # f.random_testing(model, ENV_SEEDS[:5], test_budget, str(results_fp / "rt"))
+        f = Framework(
+            seed,
+            cell_granularity,
+            features=FEATURES,
+            descriptors=descriptors,
+            name="Random Testing",
+        )
+        f.random_testing(model, ENV_SEEDS[:5], test_budget, str(results_fp / "rt"))
 
         f = Framework(
             seed,

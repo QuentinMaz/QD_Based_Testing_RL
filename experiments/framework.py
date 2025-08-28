@@ -112,7 +112,6 @@ class Framework(ABC):
     def save_configuration(self, filepath: str):
         """
         Saves the configuration of the object.
-        This lets us know what BS has been used, which can be handy for organizing the results and to compare to MDPFuzz.
         """
         self.config["use_case"] = self.use_case
         if self.name is not None:
@@ -122,115 +121,6 @@ class Framework(ABC):
         f = open(f"{filepath}.json", "w")
         f.write(json.dumps(self.config))
         f.close()
-
-    def save_random_state(self, filepath: str):
-        """Saves the state of the BitGenerator instance (of the Generator)."""
-        f = open(f"{filepath}_state.json", "w")
-        f.write(json.dumps(self.rng.bit_generator.state))
-        f.close()
-        return self.rng.bit_generator.state
-
-    def save_state(self, filepath: str):
-        """
-        Saves the current state of the framework to possibly resume execution.
-        The resulting data is a .csv file export of a DataFrame and a .npy file of the inputs.
-        Both data shares the same order, which is not temporal (logs are though) but results from iterating over the results for each cell.
-        """
-        cell_dfs = []
-        for i, cell_data in enumerate(self.cells_data):
-            # a record consist of a score, the oracle result, the cell index, the cell and behavior point
-            bs_size = len(cell_data[0][-1])
-            columns = (
-                ["mean_acc_reward", "failure_prob", "cell_index"]
-                + [f"cell{i}" for i in range(2)]
-                + self.features[:bs_size]
-            )
-            if len(columns) < (bs_size + 5):
-                columns.extend([f"feature_{i}" for i in range((bs_size + 5) - len(columns))])
-            cell_dfs.append(
-                pd.DataFrame.from_records(
-                    data=[
-                        [mean_acc_reward, failure_prob, i]
-                        + self.cells[i]
-                        + behavior.tolist()
-                        for (
-                            _input,
-                            mean_acc_reward,
-                            failure_prob,
-                            behavior,
-                        ) in cell_data
-                    ],
-                    columns=columns,
-                )
-            )
-        if len(cell_dfs) != 0:
-            df = pd.concat(cell_dfs, ignore_index=True)
-        else:
-            df = pd.DataFrame()
-        df.to_csv(f"{filepath}_data.csv", index=0)
-
-        if len(self.cells_data) != 0:
-            np.save(
-                f"{filepath}_inputs.npy",
-                np.concatenate(
-                    [
-                        np.array(list(map(lambda x: x[0], cell_data)))
-                        for cell_data in self.cells_data
-                    ]
-                ),
-            )
-        # saves the random state
-        self.save_random_state(filepath)
-        # saves the configuration
-        self.save_configuration(filepath)
-
-    def load_configuration(self, filepath: str):
-        """Loads and sets the configuration attribute of the instance."""
-        if not filepath.endswith("config"):
-            filepath += "_config"
-        f = open(f"{filepath}.json", "r")
-        self.config = json.load(f)
-        f.close()
-
-    def load_random_state(self, filepath: str):
-        """Loads and sets the state of BitGenerator instance (of the Generator)."""
-        if not filepath.endswith("state"):
-            filepath += "_state"
-        f = open(f"{filepath}.json", "r")
-        self.rng.bit_generator.state = json.load(f)
-        f.close()
-
-    def load_state(self, filepath: str):
-        """Loads a state of an instance to resume testing and returns the number of test cases loaded."""
-        inputs_fp, df_fp = f"{filepath}_inputs.npy", f"{filepath}_data.csv"
-
-        assert os.path.exists(inputs_fp) and os.path.exists(df_fp), "files are missing."
-        self.cells = []
-        self.cells_data = []
-
-        inputs = np.load(inputs_fp)
-        df = pd.read_csv(df_fp)
-        assert len(inputs) == len(df)
-
-        # removes 1 because of cell_index column
-        bs_dim = len([c for c in df.columns.to_list() if c.startswith("cell")]) - 1
-        assert bs_dim > 0
-
-        for i, row in df.iterrows():
-            row_data = row.tolist()
-            cell, input, performance, is_faulty, behavior = (
-                row_data[3 : 3 + bs_dim],
-                inputs[i],
-                row_data[0],
-                row_data[1],
-                row_data[3 + bs_dim :],
-            )
-            self.update_cell(cell, input, performance, is_faulty, np.array(behavior))
-
-        self.load_random_state(filepath)
-        self.load_configuration(filepath)
-        self.loaded = True
-        return len(df)
 
     def select_input(self, index: int):
         """Selection based on the failure probability if they are not all equal to 0; worst accumulated reward otherwise."""
@@ -572,10 +462,9 @@ class Framework(ABC):
 
         self.prepare_logging(filepath, env_seeds)
 
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget - init_budget if test_budget > 12 else 10000
+        executions_budget = test_budget - init_budget
         print(
-            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+            f"Total testing budget of {test_budget}, with {init_budget} iterations for the initialization."
         )
 
         inputs: List[np.ndarray] = []
@@ -627,14 +516,10 @@ class Framework(ABC):
                 inputs[i], behaviors[i], cell, final_states[i], expert_behaviors[i]
             )
 
-        start_time = time.time()
-        current_time = time.time()
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (
-            nb_executions < executions_budget
-        ):
+        while nb_executions < executions_budget:
             cell_index = self.select_cell()
             self.last_cell_selected = cell_index
             input = self.select_input(cell_index)
@@ -659,7 +544,6 @@ class Framework(ABC):
             )
             self.log_data(mutated_input, behavior, cell, final_obs_list, behaviors_list)
 
-            current_time = time.time()
             nb_executions += 1
             pbar.update(1)
 
@@ -671,7 +555,7 @@ class Framework(ABC):
 
         pbar.close()
         self.conclude_logging()
-        self.save_state(filepath)
+        self.save_configuration(filepath)
 
     def random_testing(
         self,
@@ -698,10 +582,9 @@ class Framework(ABC):
 
         self.prepare_logging(filepath, env_seeds)
 
-        time_budget = min(12, test_budget) * 3600
-        executions_budget = test_budget if test_budget > 12 else 10000
+        executions_budget = test_budget
         print(
-            f"Time budget of {(time_budget / 60):.2f} minutes; bound to {executions_budget} executions."
+            f"Total testing budget of {test_budget}."
         )
 
         get_behavior, get_cell = self.process_env_seeds(env_seeds)
@@ -709,13 +592,10 @@ class Framework(ABC):
         execution_times = []
 
         start_time = time.time()
-        current_time = time.time()
         nb_executions = 0
         pbar = tqdm.tqdm(total=executions_budget, disable=disable_pbar)
 
-        while (current_time - start_time < time_budget) and (
-            nb_executions < executions_budget
-        ):
+        while nb_executions < executions_budget:
             input: np.ndarray = self.generate_input()
             t0 = time.time()
             episode_reward, failure_prob, final_obs_list, behaviors_list, measures = (
@@ -732,7 +612,7 @@ class Framework(ABC):
             self.log_execution(episode_reward, failure_prob, -1, input_index, t1 - t0)
             self.log_data(input, behavior, cell, final_obs_list, behaviors_list)
 
-            current_time = time.time()
+
             nb_executions += 1
             pbar.update(1)
 
@@ -744,7 +624,7 @@ class Framework(ABC):
 
         pbar.close()
         self.conclude_logging()
-        self.save_state(filepath)
+        self.save_configuration(filepath)
 
     def novelty_search(
         self,
@@ -878,4 +758,4 @@ class Framework(ABC):
             )
 
         self.conclude_logging()
-        self.save_state(filepath)
+        self.save_configuration(filepath)

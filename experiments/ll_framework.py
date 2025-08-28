@@ -259,7 +259,7 @@ class LLExecutor(Executor):
         self.logs_buffer.close()
         for buffer in self.final_states_buffers:
             buffer.close()
-        self.executor.save_state(self.fp)
+        self.executor.save_configuration(self.fp)
         # creates also this empty file 9not done by the executor) for result data structure consistency...
         with open(f"{self.fp}_cells.txt", "w") as f:
             f.write("")

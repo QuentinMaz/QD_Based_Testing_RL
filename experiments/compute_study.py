@@ -8,8 +8,9 @@ from common import dump_results, reduce_results
 from result_analysis import (
     compute_expert_behaviors_coverage,
     compute_obs_coverage,
-    compute_rq1_results, fetch_result_data, color_data, plot_rq1_results,
-    plot_rq2_ebs_results, plot_rq2_fobs_results
+    compute_rq1_results, color_data, plot_rq1_results,
+    plot_rq2_ebs_results, plot_rq2_fobs_results, fetch_results,
+    LEGEND_LINEWIDTH, AXIS_TICKLABELS_FONTSIZE
 )
 
 import argparse
@@ -39,8 +40,6 @@ FD = True
 EBS_COV = True
 OBS_COV = True
 
-N_RESULT_FOLDERS = ["results_5", "results_10"]
-
 SUFFIX = "MAE+LS"
 
 if __name__ == "__main__":
@@ -63,7 +62,7 @@ if __name__ == "__main__":
 
     print(f"QD-based Results will be using colors of configuration \"{SUFFIX}\".")
 
-    results = fetch_result_data(result_folder)
+    results = fetch_results(result_folder)
 
     print(f"found {len(results)} results in folder \"{result_folder}\".")
     data_size = min([len(d["logs"]) for d in results])
@@ -82,13 +81,13 @@ if __name__ == "__main__":
         dump_results(febs_cov,[f"{data_folder}/{case}/fbs_cov" for case in use_cases])
         try:
             fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, febs_cov)
-            axs2[0][-1].legend_ = None
-            axs2[1][-1].legend_ = None
+            # axs2[0][-1].legend_ = None
+            # axs2[1][-1].legend_ = None
             legend = axs2[-1][-1].legend_
             for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
+                plt.setp(line, linewidth=LEGEND_LINEWIDTH)
             for ax in axs2.flat:
-                ax.tick_params(axis="both", labelsize=12)
+                ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
             fig2.savefig(f"{data_folder}/rq21.png")
         except:
             print("failed to plot expert coverage.")
@@ -99,13 +98,13 @@ if __name__ == "__main__":
         dump_results(fobs_cov,[f"{data_folder}/{case}/fobs_cov" for case in use_cases])
         try:
             fig2, axs2 = plot_rq2_fobs_results(use_cases, colors_dict, obs_cov, fobs_cov)
-            axs2[0][-1].legend_ = None
-            axs2[1][-1].legend_ = None
+            # axs2[0][-1].legend_ = None
+            # axs2[1][-1].legend_ = None
             legend = axs2[-1][-1].legend_
             for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
+                plt.setp(line, linewidth=LEGEND_LINEWIDTH)
             for ax in axs2.flat:
-                ax.tick_params(axis="both", labelsize=12)
+                ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
             fig2.savefig(f"{data_folder}/rq22.png")
         except:
             print("failed to plot final observation coverage.")
@@ -117,18 +116,11 @@ if __name__ == "__main__":
         try:
             fig, axs = plot_rq1_results(use_cases, colors_dict, rq1_results)
             for ax in axs.flat:
-                ax.tick_params(axis="both",labelsize=13)
+                ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
                 legend = ax.legend_
                 if legend is not None:
                     for line in legend.get_lines():
-                        plt.setp(line, linewidth=4)
+                        plt.setp(line, linewidth=LEGEND_LINEWIDTH)
             fig.savefig(f"{data_folder}/rq1.png")
         except:
             print("failed to plot fault detection.")
-
-
-
-
-
-
-

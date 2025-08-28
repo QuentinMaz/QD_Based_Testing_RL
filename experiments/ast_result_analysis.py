@@ -1,88 +1,33 @@
 import json
-import os
 from pathlib import Path
-import warnings
-from typing import Dict, Iterable, List, Tuple, Union
 
-from matplotlib.legend import Legend
-from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
-import numpy as np
-import pandas as pd
 import torch
 from bw_framework import EXPERT_INDICES
-import matplotlib
 from matplotlib import pyplot as plt
 from common import (
     dump_results,
     read_results_from_folder,
 )
 
-from result_analysis import AXIS_LABEL_FONTSIZE, TITLE_LABEL_FONTSIZE, color_data, compute_expert_behaviors_coverage, compute_obs_coverage, compute_rq1_results, plot_rq1_results, plot_rq2_ebs_results, plot_rq2_fobs_results
+from result_analysis import (
+    LEGEND_LINEWIDTH,
+    AXIS_TICKLABELS_FONTSIZE,
+    USE_CASES,
+    color_data,
+    compute_expert_behaviors_coverage,
+    compute_obs_coverage,
+    compute_rq1_results,
+    plot_rq1_results,
+    plot_rq2_ebs_results,
+    plot_rq2_fobs_results,
+    plot_summary_results,
+)
 
-# USE_CASES = ["Bipedal Walker", "Lunar Lander", "Taxi"]
 
-USE_CASES = ["Bipedal Walker", "Highway", "Lunar Lander"]
-
-#################################################################################################################################
-############################################################## HELPERS ##########################################################
-
-
-def plot_rq3_results(
-        data_lists: List[List[Dict]],
-        colors_dict: Dict[str, Tuple[float]],
-        use_cases: List[str] = None,
-        ylabels: List[str] = None):
-    if use_cases is None:
-        use_cases = np.arange(np.max([len(l) for l in data_lists]))
-
-    nrows = len(data_lists)
-    ncols = len(use_cases)
-
-    sharex = "all"
-
-    fig, axs = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4*nrows, 5*ncols), sharex=sharex, sharey="row")
-
-    if ylabels is None:
-        ylabels = ["" for _ in range(nrows)]
-    for ax in axs.flat:
-        ax.grid(axis="y", color="0.9", linestyle="-", linewidth=1)
-
-    for r, data in enumerate(data_lists):
-        axs[r][0].set_ylabel(ylabels[r], fontsize=AXIS_LABEL_FONTSIZE)
-        for c in range(ncols):
-            ax = axs[r][c]
-            case_dict = data[c]
-            for name in case_dict.keys():
-                to_plot = case_dict[name]
-                color = colors_dict[name]
-                label = name
-                if isinstance(to_plot, np.ndarray):
-                    x = np.arange(len(to_plot))
-                    assert len(x) == len(to_plot)
-                    ax.plot(x, to_plot, color=color, label=label)
-                else:
-                    # assert np.all([len(x) == len(tmp) for tmp in to_plot])
-                    y, perc_25, perc_75 = to_plot
-                    x = np.arange(len(y))
-                    ax.plot(x, y, color=color, label=label)
-                    ax.fill_between(x, perc_25, perc_75, alpha=0.25, linewidth=0, color=color)
-        if r % 2 == 0:
-            ax = axs[r][1]
-            legend = ax.legend(
-                prop={"size": 10},
-                labelspacing=1.1,
-                handletextpad=1.05,
-                borderpad=1.05,
-                borderaxespad=1.0
-            )
-            legend_frame = legend.get_frame()
-            legend_frame.set_facecolor("0.9")
-            legend_frame.set_edgecolor("0.9")
-    for c in range(ncols):
-        axs[0][c].set_title(use_cases[c], fontsize=TITLE_LABEL_FONTSIZE)
-    fig.tight_layout()
-    return (fig, axs)
+"""
+Script that computes the analysis of the results of the original experiments (from the AST paper).
+As such, it assumes they have been run.
+"""
 
 
 ##############################################################################
@@ -117,30 +62,15 @@ def load_first_experiments_data():
         for m in ["ns", "rt", "mdpfuzz"]
     ]
 
-    # TT
-    # tt_results = read_results_from_folder(
-    #     "results/tt/qd/",
-    #     include_final_states=True,
-    #     include_expert_behaviors=True
-    # )
-    # [
-    #     tt_results.extend(
-    #         read_results_from_folder(f"results/tt/{m}/", include_final_states=True, include_expert_behaviors=True)
-    #     )
-    #     for m in ["ns", "rt", "mdpfuzz"]
-    # ]
-
-    # return bw_results + ll_results + tt_results
-
     # HW
     hw_results = read_results_from_folder(
-        "../highway/results_1/hw/qd/",
+        "../highway/results/hw/qd/",
         include_final_states=True,
         include_expert_behaviors=True
     )
     [
         hw_results.extend(
-            read_results_from_folder(f"../highway/results_1/hw/{m}/", include_final_states=True, include_expert_behaviors=True)
+            read_results_from_folder(f"../highway/results/hw/{m}/", include_final_states=True, include_expert_behaviors=True)
         )
         for m in ["ns", "rt", "mdpfuzz"]
     ]
@@ -178,13 +108,13 @@ def load_second_experiments_data():
 # exec(open("result_analysis.py").read())
 if __name__ == "__main__":
     torch.set_num_threads(1)
+    folder = "data_ast"
 
     ####################### Raw data loading #######################
 
     first_results = load_first_experiments_data()
 
     use_cases, method_names, colors_dict = color_data(first_results)
-    print(method_names, use_cases, len(first_results))
 
     ####################### Analysis computation #######################
 
@@ -194,7 +124,6 @@ if __name__ == "__main__":
     # expert behavior coverage
     ebs_cov, efbs_cov = compute_expert_behaviors_coverage(first_results)
     # stores the results of the analysis
-    folder = "data_ast"
     for case in use_cases:
         sub_folder = f"{folder}/{case}"
         Path(sub_folder).mkdir(parents=True, exist_ok=True)
@@ -210,34 +139,63 @@ if __name__ == "__main__":
 
     ########################### Plotting ###########################
 
-    fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
-    for ax in axs1.flat:
-        ax.tick_params(axis="both",labelsize=13)
-        legend = ax.legend_
-        if legend is not None:
-            for line in legend.get_lines():
-                plt.setp(line, linewidth=4)
-    fig1.savefig(f"{folder}/rq1.png")
+    try:
+        fig1, axs1 = plot_rq1_results(use_cases, colors_dict, rq1_data)
+        for ax in axs1.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+            legend = ax.legend_
+            if legend is not None:
+                for line in legend.get_lines():
+                    plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        fig1.savefig(f"{folder}/rq1.png")
+    except:
+        print("failed to plot fault detection.")
 
-    fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, efbs_cov)
-    axs2[0][-1].legend_ = None
-    axs2[1][-1].legend_ = None
-    legend = axs2[-1][-1].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
-    for ax in axs2.flat:
-        ax.tick_params(axis="both", labelsize=12)
-    fig2.savefig(f"{folder}/rq21.png")
+    try:
+        fig2, axs2 = plot_rq2_ebs_results(use_cases, colors_dict, ebs_cov, efbs_cov)
+        axs2[0][-1].legend_ = None
+        axs2[1][-1].legend_ = None
+        legend = axs2[-1][-1].legend_
+        for line in legend.get_lines():
+            plt.setp(line, linewidth=AXIS_TICKLABELS_FONTSIZE)
+        for ax in axs2.flat:
+            ax.tick_params(axis="both", labelsize=LEGEND_LINEWIDTH)
+        fig2.savefig(f"{folder}/rq21.png")
+    except:
+        print("failed to plot expert coverage.")
 
-    fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
-    axs2[0][-1].legend_ = None
-    axs2[1][-1].legend_ = None
-    legend = axs2[-1][-1].legend_
-    for line in legend.get_lines():
-        plt.setp(line, linewidth=4)
-    for ax in axs2.flat:
-        ax.tick_params(axis="both", labelsize=12)
-    fig2.savefig(f"{folder}/rq22.png")
+    try:
+        fig2, axs2 = plot_rq2_fobs_results(cases, colors_dict, obs_coverage_results, fobs_coverage_results)
+        axs2[0][-1].legend_ = None
+        axs2[1][-1].legend_ = None
+        legend = axs2[-1][-1].legend_
+        for line in legend.get_lines():
+            plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        for ax in axs2.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+        fig2.savefig(f"{folder}/rq22.png")
+    except:
+        print("failed to plot final state coverage.")
+
+    try:
+        fig, axs = plot_summary_results(
+            [rq1_data, ebs_cov, efbs_cov, obs_coverage_results, fobs_coverage_results],
+            colors_dict,
+            USE_CASES,
+            ["#Faults", "#Expert Behaviors", "#Faulty Expert Behaviors", "#Final States", "#Faulty Final States"],
+            sharey="none",
+            figsize=(3.65, 6.5)
+        )
+        for ax in axs.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+            legend = ax.legend_
+            if legend is not None:
+                for line in legend.get_lines():
+                    plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        fig.set_facecolor("white")
+        fig.savefig(f"{folder}/rq.png")
+    except:
+        print("failed to plot summary plot.")
 
 
     with open(f"{folder}/colors_dict.json", "w") as file:
@@ -246,7 +204,6 @@ if __name__ == "__main__":
     print("FIRST ANALYSIS DONE. PERFORMING ANALYSIS FOR RQ3...")
 
     # fetches and renames the BW results
-
     bw_results = load_second_experiments_data()
 
     bw_cases, bw_names, bw_colors_dict = color_data(bw_results)
@@ -264,7 +221,6 @@ if __name__ == "__main__":
             r.update(data_to_copy)
 
     # saves the results
-
     folder += "_rq3"
     for case in bw_cases:
         sub_folder = f"{folder}/{case}"
@@ -273,11 +229,23 @@ if __name__ == "__main__":
     for res_data, res_name in zip(rq3_results, ["rq1", "bs_cov", "fbs_cov", "obs_cov", "fobs_cov"]):
         dump_results(res_data, [f"{folder}/{case}/{res_name}" for case in bw_cases])
 
-    # plots the results as done in the original paper
-    fig4, axs4 = plot_rq3_results(
-        rq3_results,
-        bw_colors_dict,
-        ["$Distance$ and $Hull$ $angle$", "$Torque$ and $Jump$", "$Hip$ $angles$", "$Hip$ $speeds$"],
-        ["#Faults", "#Expert Behaviors", "#Faulty Expert Behaviors", "#Final States", "#Faulty Final States"]
-    )
-    fig4.savefig(f"{folder}/rq3.png")
+
+    try:
+        # plots the results as done in the original paper
+        fig4, axs4 = plot_summary_results(
+            rq3_results,
+            bw_colors_dict,
+            ["$Distance$ and $Hull$ $angle$", "$Torque$ and $Jump$", "$Hip$ $angles$", "$Hip$ $speeds$"],
+            ["#Faults", "#Expert Behaviors", "#Faulty Expert Behaviors", "#Final States", "#Faulty Final States"],
+            figsize=(4, 5) # default one
+        )
+        for ax in axs4.flat:
+            ax.tick_params(axis="both", labelsize=AXIS_TICKLABELS_FONTSIZE)
+            legend = ax.legend_
+            if legend is not None:
+                for line in legend.get_lines():
+                    plt.setp(line, linewidth=LEGEND_LINEWIDTH)
+        fig4.set_facecolor("white")
+        fig4.savefig(f"{folder}/rq3.png")
+    except:
+        print("failed to plot summary plot.")

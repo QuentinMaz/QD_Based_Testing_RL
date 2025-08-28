@@ -149,7 +149,7 @@ def get_histogram(
 
 
 def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.ndarray:
-    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander", "Taxi"]:
+    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander"]:
         if not use_case.startswith("Bipedal Walker"):
             raise ValueError()
 
@@ -163,35 +163,31 @@ def get_expert_bin_edges(use_case: str, descriptors: np.ndarray = None) -> np.nd
     if use_case == "Highway":
         return np.load(f"grid/hw/edges.npy")
 
-    if use_case == "Lunar Lander":
+    else:
         return np.load(f"grid/ll/0_1000_xedges.npy"), np.load(f"grid/ll/0_1000_yedges.npy")
 
-    else:
-        return np.load(f"grid/tt/xedges.npy").astype(float), np.load(f"grid/tt/yedges.npy").astype(float)
 
+# def get_measures_edges(
+#     use_case: str, num_bins: int = 50, model_name: str = "DQNAgent-35000"
+# ) -> List[np.ndarray]:
+#     if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander"]:
+#         raise ValueError()
 
+#     if use_case == "Bipedal Walker":
+#         df = pd.read_csv("../experiments/grid/bw/measures.csv")
+#     elif use_case == "Lunar Lander":
+#         df = pd.read_csv("../experiments/grid/ll/measures.csv")
+#     else:
+#         df = pd.read_csv("measures.csv")
+#         if model_name not in df["model_name"].tolist():
+#             warnings.warn(
+#                 "Model name for the measures' extrema in Highway not found: using the default model name value instead...",
+#                 UserWarning,
+#             )
+#             model_name = "DQNAgent-35000"
+#         df = df.loc[df.model_name == model_name]
 
-def get_measures_edges(
-    use_case: str, num_bins: int = 50, model_name: str = "DQNAgent-35000"
-) -> List[np.ndarray]:
-    if use_case not in ["Bipedal Walker", "Highway", "Lunar Lander"]:
-        raise ValueError()
-
-    if use_case == "Bipedal Walker":
-        df = pd.read_csv("../experiments/grid/bw/measures.csv")
-    elif use_case == "Lunar Lander":
-        df = pd.read_csv("../experiments/grid/ll/measures.csv")
-    else:
-        df = pd.read_csv("measures.csv")
-        if model_name not in df["model_name"].tolist():
-            warnings.warn(
-                "Model name for the measures' extrema in Highway not found: using the default model name value instead...",
-                UserWarning,
-            )
-            model_name = "DQNAgent-35000"
-        df = df.loc[df.model_name == model_name]
-
-    return get_bin_edges(df, measures=MEASURES, num_bins=num_bins)
+#     return get_bin_edges(df, measures=MEASURES, num_bins=num_bins)
 
 
 def compute_cell_filling(
@@ -262,7 +258,6 @@ def retrieve_result(
     - "include_expert_behaviors": the dictionaries have the latter at the key `expert_behaviors`.
     """
     filepaths = [f"{filepath}_{k}.txt" for k in ["inputs", "behaviors", "cells"]]
-    filepaths.append(f"{filepath}_data.csv")
 
     if not np.all([os.path.exists(fp) for fp in filepaths]):
         raise FileNotFoundError("One of the required result file is missing.")
@@ -280,11 +275,6 @@ def retrieve_result(
         warnings.warn(f"No logs file found for {filepath}.")
         logs = pd.DataFrame()
     result["logs"] = logs
-
-    try:
-        result["data"] = pd.read_csv(f"{filepath}_data.csv")
-    except pd.errors.EmptyDataError:
-        result["data"] = pd.DataFrame()
 
     try:
         with open(f"{filepath}_config.json", "r") as f:
@@ -586,21 +576,6 @@ def load_bipedal_walker_model():
         kwargs={"seed": 0, "buffer_size": 1},
         device="cpu",
     )
-
-class TestAgent():
-    """Shallow class that loads a qtable and steps."""
-    def __init__(self, filepath: str):
-        if not os.path.exists(filepath):
-            raise FileNotFoundError(f"Input file not found.")
-        self.qtable = np.load(filepath)
-
-    def step(self, state):
-        return np.argmax(self.qtable[state])
-
-def load_taxi_model() -> TestAgent:
-    """Loads the model under test."""
-    return TestAgent("taxi_large_map_qtable.npy")
-
 
 
 #################################################################################################

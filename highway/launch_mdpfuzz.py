@@ -3,12 +3,8 @@ import os
 import time
 from typing import Any, Dict, List, Tuple
 
-import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import MaxNLocator
 from mdpfuzz.executor import Executor
-from mdpfuzz.logger import FuzzerLogger
 from mdpfuzz.mdpfuzz import Fuzzer
 from executor import HighwayTestManager
 from hw_framework import ENV_SEEDS, FEATURES, EXPERIMENT_SEEDS
@@ -92,9 +88,6 @@ class MDPFuzzExecutor(Executor):
     ) -> Tuple[float, bool, np.ndarray, float]:
         t0 = time.time()
 
-        # failure, obs_seq, action_seq, reward_seq, trajectory, frames = self.executor._record_execution(
-        #     policy, input, record=False, deterministic=True
-        # )
         mean_acc_reward, failure_prob, final_obs_list, behaviors_list, measures = self.executor.execute_stochastic_policy(
             input, policy, len(self.env_seeds), deterministic=True
         )
@@ -129,8 +122,6 @@ class MDPFuzzExecutor(Executor):
         with open(f"{self.fp}_config.json", "w") as f:
             f.write(json.dumps(self.config))
         # creates empty files for result data structure consistency...
-        with open(f"{self.fp}_data.csv", "w") as f:
-            f.write("")
         with open(f"{self.fp}_cells.txt", "w") as f:
             f.write("")
 
@@ -181,7 +172,6 @@ if __name__ == "__main__":
     model = executor.load_policy(
         model_path="saved_models/dqnagent/checkpoint-35000.tar"
     )
-
 
     test_budget = 5000
     init_budget = 1000
